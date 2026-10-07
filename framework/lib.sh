@@ -203,8 +203,14 @@ except FileNotFoundError:
     rows = []
 w = [r for r in rows if r["ts"] >= now - win]
 bad = sum(1 for r in w if not r["ok"])
-enough = len(w) >= 0.8 * win / 0.5   # coverage: >= 80% of expected samples at 0.5 s
-print(1 if (w and bad == 0 and enough) else 0, f"{len(w)} probes in {int(win)}s, {bad} failed")
+# Coverage = no blind spots: probes must start near the window start, still be
+# arriving now, and never pause for more than MAX_GAP (a slow prober is fine,
+# a dead or restarted one is not).
+MAX_GAP = 3.0
+ts = [now - win] + [r["ts"] for r in w] + [now]
+gap = max(b - a for a, b in zip(ts, ts[1:]))
+print(1 if (w and bad == 0 and gap <= MAX_GAP) else 0,
+      f"{len(w)} probes in {int(win)}s, {bad} failed, max gap {gap:.1f}s")
 EOF
 )
   record "$1" public "health_stable_${2}s" "$p" "$detail"

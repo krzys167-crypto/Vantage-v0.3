@@ -99,7 +99,9 @@ spec:
           image: mirror.gcr.io/library/python:3.12-alpine
           command: ["python", "-u", "/app/probe.py"]
           env: [{name: OUT, value: "-"}]
-          resources: {limits: {cpu: 100m, memory: 64Mi}, requests: {cpu: 10m, memory: 16Mi}}
+          # two HTTP round-trips per probe: give it headroom so CPU throttling
+          # does not show up as probe latency
+          resources: {limits: {cpu: 200m, memory: 64Mi}, requests: {cpu: 20m, memory: 16Mi}}
           securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true}
           volumeMounts:
             - {name: code, mountPath: /app/probe.py, subPath: probe.py}
