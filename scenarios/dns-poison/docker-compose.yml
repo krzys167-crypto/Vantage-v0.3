@@ -1,0 +1,60 @@
+name: vantage-dns
+
+# Static addresses: the zone file refers to them, like A records do in real life.
+networks:
+  net:
+    ipam:
+      config: [{subnet: "${NET}.0/24"}]
+
+x-py: &py
+  image: ${PYTHON_IMAGE}
+  restart: unless-stopped
+  working_dir: /app
+
+services:
+  dns:
+    <<: *py
+    command: ["python", "-u", "dns_server.py"]
+    volumes:
+      - ./app:/app:ro
+      - ./.state/zone:/zone:ro
+    networks: {net: {ipv4_address: "${DNS_IP}"}}
+
+  payments:
+    <<: *py
+    command: ["python", "-u", "server.py"]
+    environment: {ROLE: payments, PORT: "8090"}
+    volumes: [./app:/app:ro, ./.state/secret:/secret:ro]
+    networks: {net: {ipv4_address: "${PAY_IP}"}}
+
+  # decommissioned instance that still answers, signing with its old key
+  legacy:
+    <<: *py
+    command: ["python", "-u", "server.py"]
+    environment: {ROLE: legacy, PORT: "8090", INSTANCE: "${LEGACY_INSTANCE}"}
+    volumes: [./app:/app:ro, ./.state/secret:/secret:ro]
+    networks: {net: {ipv4_address: "${LEGACY_IP}"}}
+
+  fx:
+    <<: *py
+    command: ["python", "-u", "server.py"]
+    environment: {ROLE: fx, PORT: "8090"}
+    volumes: [./app:/app:ro, ./.state/secret:/secret:ro]
+    networks: {net: {ipv4_address: "${FX_IP}"}}
+
+  api:
+    <<: *py
+    depends_on: [dns, payments, fx]
+    command: ["python", "-u", "server.py"]
+    environment: {ROLE: api, PORT: "8080", RESOLVER: "${DNS_IP}", VANTAGE_HOST: "${VANTAGE_HOST}"}
+    volumes: [./app:/app:ro, ./.state/secret:/secret:ro, ./.state/config:/config:ro]
+    ports: ["127.0.0.1:${EDGE_PORT}:8080"]
+    networks: {net: {ipv4_address: "${NET}.50"}}
+
+  prober:
+    <<: *py
+    depends_on: [api]
+    command: ["python", "-u", "/probe/probe.py"]
+    environment: {OUT: /evidence/probes.jsonl}
+    volumes: [./app:/app:ro, ./prober:/probe:ro, ./.state/evidence:/evidence]
+    networks: {net: {ipv4_address: "${NET}.60"}}

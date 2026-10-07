@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [certificate-apocalypse, clock-drift]
+        scenario: [certificate-apocalypse, clock-drift, dns-poison]
         # seed nibbles 6..8 select the faults: cover every branch
         seed:
           - "000000000000000000000000000000000000000000000000000000000000000a"
@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [certificate-apocalypse, clock-drift]
+        scenario: [certificate-apocalypse, clock-drift, dns-poison]
         seed:
           - "000000000000000000000000000000000000000000000000000000000000000a"
           - "000000111000000000000000000000000000000000000000000000000000000d"

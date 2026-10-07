@@ -1,0 +1,88 @@
+# Vantage Scenario DSL v0 — validated by dsl/scenario.schema.v0.json
+apiVersion: vantage.dev/v0
+meta:
+  id: dns-poison
+  title: Split-Brain DNS
+  version: 0.1.0
+  difficulty: 3
+  est_minutes: 40
+  tags: [dns, service-discovery, caching, change-management, integrity]
+  skills: [dns-diagnosis, ttl-and-negative-caching, zone-serials, source-of-truth-fixes]
+
+env:
+  mode: docker             # docker | k3d (MODE=k3d make up)
+  compose: docker-compose.yml
+  manifests: k8s/manifests.yaml
+  seed: sha256(user_id + ":dns-poison:v0")
+  user_mutation:
+    poison_location: "seed[6] % 2 -> zone record | hosts.json override"
+    fx_breakage: "seed[7] % 2 -> record deleted | typo fx.interal"
+    poison_ttl_s: "3600 + seed[9] * 5400"
+    legacy_instance: "seed[10] % 4"
+    flag: "HMAC(sha256(seed:flag), host)[0:24]"
+  limits: {cpus: 1.5, memory_mb: 512}
+
+services:
+  - {name: dns,      role: dependency, port: 53}
+  - {name: payments, role: dependency, port: 8090}
+  - {name: legacy,   role: dependency, port: 8090}
+  - {name: fx,       role: dependency, port: 8090}
+  - {name: api,      role: target,     port: 8080, upstream: "payments, fx via dns"}
+  - {name: prober,   role: observer,   interval_s: 0.5}
+
+faults:
+  - {id: dns_poison,         stage: discovery, target: dns, params: {points_to: legacy, ttl_s: "3600..84600", alt_target: "api hosts.json"}, at: break}
+  - {id: dns_record_missing, stage: discovery, target: dns, params: {variants: [deleted, typo]}, at: break}
+
+traffic:
+  synthetic: {tool: prober, interval_s: 0.5, timeout_s: 5, flow: "api /checkout -> payments + fx"}
+  sli:
+    availability: "ok_probes / all_probes since break"
+    latency: {p95_ms: 50, p99_ms: 200}
+  slo: {availability: 0.99, window_s: 60}
+
+assertions:
+  public:
+    - {id: A1, type: dns_answer, name: payments.internal, expect: live_instance}
+    - {id: A2, type: dns_answer, name: fx.internal, expect: live_instance}
+    - {id: A3, type: client_view_consistent, service: api}
+    - {id: A4, type: checkout_ok, expect: {status: 200, header: X-Vantage-Flag, served_by: payments}}
+    - {id: A5, type: health_stable_Ns, window_s: 60}
+    - {id: A6, type: log_absence, service: api, pattern: "upstream error"}
+  hidden:
+    - {id: H1, type: upstream_signature_verified, security_critical: true}
+    - {id: H2, type: no_static_overrides}
+    - {id: H3, type: zone_serial_bumped}
+    - {id: H4, type: payments_ttl_sane, max_s: 3600}
+    - {id: H5, type: no_record_to_legacy}
+    - {id: H6, type: flag_authentic}
+
+scoring:
+  weights: {availability: 20, time_to_recover: 35, latency: 10, blast_radius: 15, hidden: 20}
+  time_to_recover: {full_s: 900, zero_s: 3600}
+  latency: {full_p95_ms: 50, zero_p95_ms: 500}
+  penalties: {hint: 5, restart_unaffected: 10}
+  blast_radius:
+    unaffected: [payments, legacy, fx, prober]
+    # docker: dns reloads and the api cache flushes without restarts
+    recreate_penalty:
+      - {service: api, mode: docker, points: 3}
+      - {service: dns, mode: docker, points: 5}
+  caps: {public_fail: 40, security_weakened: 65}
+  tiers: {pass: 60, merit: 80, elite: 92}
+
+evidence:
+  collect: [probes_jsonl, timeline_tsv, assertions_json, file_hashes, instance_identities]
+  files: [.state/zone, .state/config]
+  sign: {alg: ed25519, artifact: report.json}
+
+hints:
+  - after_s: 300
+    cost: 5
+    text: "Compare three views of the same name: the authoritative answer (make dig), what the api believes (make resolve) and what it actually reached (make call, make logs S=api)."
+  - after_s: 600
+    cost: 5
+    text: "A fixed zone does nothing until the dns accepts it (make zone shows the served serial) and until cached answers expire - including cached NXDOMAINs (make flush)."
+  - after_s: 1200
+    cost: 5
+    text: "Two names are broken independently. Fix them where they are defined; overrides and disabled signature checks are graded as regressions."
