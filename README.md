@@ -39,7 +39,11 @@ Na Linuksie i macOS (`pwsh`) skrypt działa tylko w trybie `-CheckOnly`.
 | Scenariusz | Opis | Uruchomienie |
 |---|---|---|
 | [Certificate Apocalypse](scenarios/certificate-apocalypse/) | wygasły/niepełny łańcuch TLS na brzegu + zepsute mTLS do backendu | `cd scenarios/certificate-apocalypse && make up break` |
+| [Clock Drift](scenarios/clock-drift/) | przesunięty zegar psuje JWT (`nbf`/`exp`) + niedokończona rotacja klucza podpisu | `cd scenarios/clock-drift && make up break` |
 
-Scenariusze opisuje DSL v0 (`dsl/scenario.schema.v0.json`). Walidacja: `python dsl/validate.py`.
+Scenariusze opisuje DSL v0 (`dsl/scenario.schema.v0.json`).
+`scenario.yaml` jest jedynym źródłem wag, progów i podpowiedzi: `python dsl/validate.py --emit` generuje z niego `generated/*.json`, z których korzysta `framework/` (runtime docker/k3d, scoring, hinty).
 Plan rozwoju DSL jest w [docs/dsl-roadmap.md](docs/dsl-roadmap.md).
-CI (`.github/workflows/scenarios.yml`) uruchamia self-test każdego scenariusza dla wszystkich kombinacji usterek.
+CI (`.github/workflows/scenarios.yml`) uruchamia self-test każdego scenariusza w trybie docker dla wszystkich kombinacji usterek i w trybie k3d dla wybranych.
+
+Każdy scenariusz wspiera `MODE=docker` (domyślnie) i `MODE=k3d`.

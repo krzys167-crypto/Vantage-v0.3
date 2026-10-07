@@ -1,0 +1,124 @@
+# Clock Drift on k3d. Applied by framework scenario_up into namespace vantage-cd.
+# ConfigMaps `scenario`, `app-code`, `clock`, `svc-config` and Secrets `auth-keys`,
+# `api-keyring`, `api-flag` are created from .state/ by scripts/k8s_objects.sh.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: auth, labels: {app: auth}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: auth}}
+  template:
+    metadata: {labels: {app: auth}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: auth
+          image: mirror.gcr.io/library/python:3.12-alpine
+          command: ["python", "-u", "/app/server.py"]
+          env:
+            - {name: ROLE, value: auth}
+            - {name: PORT, value: "8081"}
+            - {name: DECOY_IDP, valueFrom: {configMapKeyRef: {name: scenario, key: DECOY_IDP}}}
+          ports: [{containerPort: 8081}]
+          readinessProbe: {tcpSocket: {port: 8081}, periodSeconds: 2}
+          resources: {limits: {cpu: 200m, memory: 96Mi}, requests: {cpu: 20m, memory: 24Mi}}
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true}
+          volumeMounts:
+            - {name: code, mountPath: /app/server.py, subPath: server.py}
+            - {name: keys, mountPath: /keys, readOnly: true}
+            - {name: clock, mountPath: /clock, readOnly: true}
+            - {name: config, mountPath: /config, readOnly: true}
+      volumes:
+        - {name: code, configMap: {name: app-code}}
+        - {name: keys, secret: {secretName: auth-keys}}
+        - {name: clock, configMap: {name: clock}}
+        - {name: config, configMap: {name: svc-config}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: auth}
+spec:
+  selector: {app: auth}
+  ports: [{port: 8081, targetPort: 8081}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api, labels: {app: api}}
+spec:
+  replicas: 2
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app: api}}
+  template:
+    metadata: {labels: {app: api}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: api
+          image: mirror.gcr.io/library/python:3.12-alpine
+          command: ["python", "-u", "/app/server.py"]
+          env:
+            - {name: ROLE, value: api}
+            - {name: PORT, value: "8080"}
+            - {name: VANTAGE_HOST, valueFrom: {configMapKeyRef: {name: scenario, key: VANTAGE_HOST}}}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
+          resources: {limits: {cpu: 200m, memory: 96Mi}, requests: {cpu: 20m, memory: 24Mi}}
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true}
+          volumeMounts:
+            - {name: code, mountPath: /app/server.py, subPath: server.py}
+            - {name: keyring, mountPath: /keyring, readOnly: true}
+            - {name: clock, mountPath: /clock, readOnly: true}
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: flag, mountPath: /secret, readOnly: true}
+      volumes:
+        - {name: code, configMap: {name: app-code}}
+        - {name: keyring, secret: {secretName: api-keyring}}
+        - {name: clock, configMap: {name: clock}}
+        - {name: config, configMap: {name: svc-config}}
+        - {name: flag, secret: {secretName: api-flag}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api}
+spec:
+  selector: {app: api}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: prober, labels: {app: prober}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prober}}
+  template:
+    metadata: {labels: {app: prober}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: prober
+          image: mirror.gcr.io/library/python:3.12-alpine
+          command: ["python", "-u", "/app/probe.py"]
+          env: [{name: OUT, value: "-"}]
+          # two HTTP round-trips per probe: give it headroom so CPU throttling
+          # does not show up as probe latency
+          resources: {limits: {cpu: 200m, memory: 64Mi}, requests: {cpu: 20m, memory: 16Mi}}
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true}
+          volumeMounts:
+            - {name: code, mountPath: /app/probe.py, subPath: probe.py}
+      volumes:
+        - {name: code, configMap: {name: app-code}}
+---
+# Isolation: auth/api accept traffic only from inside the namespace; nothing
+# may leave it except DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: same-namespace-only}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{podSelector: {}}]
+  egress:
+    - to: [{podSelector: {}}]
+    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]

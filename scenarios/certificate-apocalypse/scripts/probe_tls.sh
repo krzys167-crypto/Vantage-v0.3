@@ -36,8 +36,8 @@ except (ssl.SSLError, OSError) as e:
 fi
 edge_open
 
-log "edge: $VANTAGE_HOST via 127.0.0.1:$GATEWAY_PORT (trust = public root only)"
-out="$(echo | openssl s_client -connect "127.0.0.1:$GATEWAY_PORT" -servername "$VANTAGE_HOST" \
+log "edge: $VANTAGE_HOST via 127.0.0.1:$EDGE_PORT (trust = public root only)"
+out="$(echo | openssl s_client -connect "127.0.0.1:$EDGE_PORT" -servername "$VANTAGE_HOST" \
   -CAfile "$PKI/clients/root-ca.pem" -showcerts 2>&1 || true)"
 echo "$out" | grep -E "^ *[0-9] s:|^ *i:|Verify return code" || true
 printf '%s\n' "$out" | awk '/BEGIN CERT/{f=1} f{print} /END CERT/{exit}' \

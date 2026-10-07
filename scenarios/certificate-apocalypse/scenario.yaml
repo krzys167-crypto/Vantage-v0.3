@@ -64,16 +64,27 @@ scoring:
   weights: {availability: 20, time_to_recover: 35, latency: 10, blast_radius: 15, hidden: 20}
   time_to_recover: {full_s: 600, zero_s: 3600}
   latency: {full_p95_ms: 50, zero_p95_ms: 500}
-  penalties: {hint: 5, restart_unaffected: 10, gateway_recreated: 3}
+  penalties: {hint: 5, restart_unaffected: 10}
+  blast_radius:
+    unaffected: [backend, prober]
+    # docker: reload is the zero-downtime path; on k3d a rolling restart is normal
+    recreate_penalty: {service: gateway, mode: docker, points: 3}
   caps: {public_fail: 40, security_weakened: 65}
   tiers: {pass: 60, merit: 80, elite: 92}
 
 evidence:
   collect: [probes_jsonl, timeline_tsv, assertions_json, file_hashes, container_start_times]
+  files: [.state/pki/gateway]
   sign: {alg: ed25519, artifact: report.json}
   roadmap: [bash_history, kubectl_trace, otel_spans, cosign_images]
 
 hints:
-  - {after_s: 300,  cost: 5, text: "Compare what a real client sees with what is on disk."}
-  - {after_s: 600,  cost: 5, text: "Two TLS hops. A 502 after the edge works means the mTLS hop."}
-  - {after_s: 1200, cost: 5, text: "Re-issue only what is broken, keep keys, fullchain = leaf + intermediate, reload."}
+  - after_s: 300
+    cost: 5
+    text: "Look at what a real client sees, not at what the files on disk say. make probe and the prober's 'err' field disagree with 'it worked yesterday'."
+  - after_s: 600
+    cost: 5
+    text: "There are two TLS hops. After the edge handshake works, a 502 means the gateway cannot complete mTLS to the backend. make probe MESH=1."
+  - after_s: 1200
+    cost: 5
+    text: "Re-issue only what is broken, keep the keys, build fullchain = leaf + intermediate, then make apply instead of restarting anything."

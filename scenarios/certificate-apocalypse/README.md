@@ -59,7 +59,7 @@ Pliki gatewaya leżą w `.state/pki/gateway/`. Po zmianach wykonaj `make apply`.
 | Availability (SLI) | prober, 1 próbka / 0,5 s, zaufanie tylko do publicznego roota | `ok / wszystkie` od `break` |
 | Latency p95/p99 | `lat_ms` z udanych próbek w oknie stabilności | percentyl nearest-rank |
 | MTTR | `probes.jsonl` + `timeline.tsv` | od pierwszej nieudanej próbki po `break` do początku końcowej nieprzerwanej serii OK |
-| Health stable N s | prober | wszystkie próbki w ostatnich `STABLE_WINDOW` s OK i co najmniej 80% oczekiwanej liczby próbek |
+| Health stable N s | prober | wszystkie próbki w ostatnich `STABLE_WINDOW` s OK i brak ślepych plamek: żadna przerwa między próbkami (ani od początku okna, ani do teraz) nie przekracza 3 s |
 | Blast radius | tożsamość instancji: `StartedAt` kontenera albo nazwa poda + liczba restartów (baseline przy `break`) | restart `backend`/`prober` = −10 pkt każdy; w trybie docker odtworzenie gatewaya zamiast reloadu = −3 pkt |
 | Hinty | `timeline.tsv` | −5 pkt za każdą |
 

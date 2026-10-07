@@ -1,0 +1,44 @@
+name: vantage-cd
+
+networks:
+  net:
+
+services:
+  auth:
+    image: ${PYTHON_IMAGE}
+    command: ["python", "-u", "/app/server.py"]
+    environment: {ROLE: auth, PORT: "8081", DECOY_IDP: "${DECOY_IDP}"}
+    volumes:
+      - ./app/server.py:/app/server.py:ro
+      - ./.state/keys/auth:/keys:ro
+      - ./.state/clock:/clock:ro
+      - ./.state/config:/config:ro
+    networks: [net]
+    restart: unless-stopped
+
+  api:
+    image: ${PYTHON_IMAGE}
+    command: ["python", "-u", "/app/server.py"]
+    environment: {ROLE: api, PORT: "8080", VANTAGE_HOST: "${VANTAGE_HOST}"}
+    volumes:
+      - ./app/server.py:/app/server.py:ro
+      - ./.state/keys/api:/keyring:ro
+      - ./.state/clock:/clock:ro
+      - ./.state/config:/config:ro
+      - ./.state/secret:/secret:ro
+    ports:
+      - "127.0.0.1:${EDGE_PORT}:8080"
+    networks: [net]
+    restart: unless-stopped
+
+  # Synthetic client: token + api call every 0.5 s, the source of truth for SLIs.
+  prober:
+    image: ${PYTHON_IMAGE}
+    depends_on: [auth, api]
+    command: ["python", "-u", "/app/probe.py"]
+    environment: {OUT: /evidence/probes.jsonl}
+    volumes:
+      - ./prober/probe.py:/app/probe.py:ro
+      - ./.state/evidence:/evidence
+    networks: [net]
+    restart: unless-stopped

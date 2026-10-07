@@ -1,0 +1,17 @@
+[
+  {
+    "after_s": 300,
+    "cost": 5,
+    "text": "Look at what a real client sees, not at what the files on disk say. make probe and the prober's 'err' field disagree with 'it worked yesterday'."
+  },
+  {
+    "after_s": 600,
+    "cost": 5,
+    "text": "There are two TLS hops. After the edge handshake works, a 502 means the gateway cannot complete mTLS to the backend. make probe MESH=1."
+  },
+  {
+    "after_s": 1200,
+    "cost": 5,
+    "text": "Re-issue only what is broken, keep the keys, build fullchain = leaf + intermediate, then make apply instead of restarting anything."
+  }
+]

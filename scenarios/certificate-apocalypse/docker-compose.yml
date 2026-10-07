@@ -28,7 +28,7 @@ services:
       - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./.state/pki/gateway:/pki/gateway
     ports:
-      - "127.0.0.1:${GATEWAY_PORT}:8443"
+      - "127.0.0.1:${EDGE_PORT}:8443"
     networks:
       mesh:
         aliases: ["${VANTAGE_HOST}"]
