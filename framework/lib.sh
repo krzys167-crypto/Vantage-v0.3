@@ -193,6 +193,9 @@ ok() { "$@" >/dev/null 2>&1 && echo 1 || echo 0; }
 # A7-style check shared by all scenarios: every probe in the window ok + coverage.
 assert_stable_window() { # id window_s
   local p detail
+  # Re-sync right before measuring: on k3d probes arrive via `kubectl logs`, and
+  # any time spent on earlier assertions would otherwise look like a probe gap.
+  evidence_sync
   read -r p detail < <("$PY" - "$EVID/probes.jsonl" "$2" <<'EOF'
 import json, sys, time
 path, win = sys.argv[1], float(sys.argv[2])
