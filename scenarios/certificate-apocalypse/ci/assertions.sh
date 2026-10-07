@@ -8,6 +8,8 @@ require_state
 WINDOW="${STABLE_WINDOW:-60}"
 ROOT="$PKI/clients/root-ca.pem"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+edge_open 'rm -rf "$tmp"'
+evidence_sync
 results="$tmp/results.tsv"; : > "$results"
 
 record() { # id visibility name pass(0/1) detail
@@ -50,7 +52,7 @@ record A4 public san_matches_host "$p" "SAN=$san"
 # A5 private key on disk matches the served certificate
 if [[ -s "$leaf" ]]; then
   a="$(openssl x509 -in "$leaf" -noout -pubkey 2>/dev/null | openssl dgst -sha256 -r)"
-  b="$(openssl pkey -in "$PKI/gateway/leaf.key" -pubout 2>/dev/null | openssl dgst -sha256 -r)"
+  b="$(svc_exec gateway cat /pki/gateway/leaf.key 2>/dev/null | openssl pkey -pubout 2>/dev/null | openssl dgst -sha256 -r)"
   [[ -n "$a" && "$a" == "$b" ]] && p=1 || p=0
 else p=0; fi
 record A5 public key_matches_cert "$p" "gateway/leaf.key vs served leaf"
@@ -82,7 +84,7 @@ EOF
 record A7 public "health_stable_${WINDOW}s" "$p" "$detail"
 
 # A8 no TLS errors in gateway log during the window
-errs="$("${COMPOSE[@]}" logs --since "${WINDOW}s" gateway 2>&1 | grep -ciE 'SSL_do_handshake|certificate verify|upstream SSL|cannot load certificate' || true)"
+errs="$(svc_logs gateway "$WINDOW" | grep -ciE 'SSL_do_handshake|certificate verify|upstream SSL|cannot load certificate' || true)"
 [[ "$errs" == 0 ]] && p=1 || p=0
 record A8 public log_absence_tls_errors "$p" "$errs TLS error lines in last ${WINDOW}s"
 
@@ -109,8 +111,8 @@ if [[ "$alg" == *id-ecPublicKey* ]]; then (( bits >= 256 )) && p=1 || p=0; else 
 record H2 hidden key_strength "$p" ""
 
 # H3 gateway still verifies the backend, against the mesh CA (not "verify off")
-conf="$("${COMPOSE[@]}" exec -T gateway nginx -T 2>/dev/null || true)"
-same_ca=$(cmp -s "$PKI/gateway/mesh-ca.pem" "$PKI/ca/mesh-ca.pem" && echo 1 || echo 0)
+conf="$(svc_exec gateway nginx -T 2>/dev/null || true)"
+same_ca=$(cmp -s <(svc_exec gateway cat /pki/gateway/mesh-ca.pem 2>/dev/null) "$PKI/ca/mesh-ca.pem" && echo 1 || echo 0)
 grep -Eq '^\s*proxy_ssl_verify\s+on;' <<<"$conf" && [[ "$same_ca" == 1 ]] && p=1 || p=0
 record H3 hidden upstream_verify_on "$p" ""
 
@@ -120,11 +122,11 @@ expected="$("$PY" -c 'import hmac,hashlib,sys; print(hmac.new(open(sys.argv[1],"
 record H4 hidden flag_authentic "$p" ""
 
 # H5 backend still enforces mTLS: a client without a certificate must be rejected
-p=$("${COMPOSE[@]}" exec -T prober python - <<'EOF' 2>/dev/null || echo 0
-import socket, ssl
+p=$(svc_exec prober python - <<'EOF' 2>/dev/null || echo 0
+import os, socket, ssl
 c = ssl.create_default_context(cafile="/pki/backend/mesh-ca.pem")
 try:
-    with socket.create_connection(("backend.mesh.internal", 9443), timeout=3) as s:
+    with socket.create_connection((os.environ.get("BACKEND_DIAL", "backend.mesh.internal"), 9443), timeout=3) as s:
         with c.wrap_socket(s, server_hostname="backend.mesh.internal") as t:
             t.sendall(b"GET /healthz HTTP/1.0\r\n\r\n")
             print(0 if t.recv(64).startswith(b"HTTP/1.0 200") else 1)
@@ -138,6 +140,7 @@ record H5 hidden backend_requires_client_cert "${p:-0}" ""
 [[ "$san" == "DNS:$VANTAGE_HOST" ]] && p=1 || p=0
 record H6 hidden san_minimal "$p" ""
 
+snapshot "$STATE/current.tsv"   # blast radius input for score.py
 "$PY" - "$results" "$STATE/assertions.json" "$WINDOW" <<'EOF'
 import json, sys, time
 rows = [l.rstrip("\n").split("\t") for l in open(sys.argv[1]) if l.strip()]
@@ -148,6 +151,7 @@ out["public_pass"] = all(a["pass"] for a in out["assertions"] if a["visibility"]
 out["hidden_pass"] = sum(a["pass"] for a in out["assertions"] if a["visibility"] == "hidden")
 out["hidden_total"] = sum(1 for a in out["assertions"] if a["visibility"] == "hidden")
 json.dump(out, open(sys.argv[2], "w"), indent=2)
+
 print(f"public: {'PASS' if out['public_pass'] else 'FAIL'}   hidden: {out['hidden_pass']}/{out['hidden_total']}")
 sys.exit(0 if out["public_pass"] else 1)
 EOF

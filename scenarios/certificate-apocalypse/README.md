@@ -10,6 +10,23 @@ Zegar MTTR rusza w chwili `make break`.
 Docker z Compose v2, bash (na Windows Git Bash), openssl, python3, curl i make.
 Na Windows wszystko instaluje `..\..\install.ps1`.
 
+## Tryby: docker albo k3d
+
+```bash
+make up                         # MODE=docker (domyślnie): docker compose
+make cluster && MODE=k3d make up  # k3d: namespace vantage-ca w kontekście k3d-vantage
+```
+
+W trybie k3d PKI trafia do Secretów (`gateway-pki`, `backend-pki`, `clients-ca`), a kod do ConfigMap.
+Gateway ma 2 repliki i rolling update z `maxUnavailable: 0`.
+NetworkPolicy ogranicza ruch tak, że do backendu może się łączyć tylko gateway (i prober dla H5), a z namespace'u nie ma wyjścia do internetu.
+Dostęp z hosta odbywa się przez `kubectl port-forward`, który skrypty otwierają same.
+Zmiana trybu wymaga `make clean`.
+
+Ten sam przepływ działa w obu trybach: edytujesz pliki w `.state/pki/gateway/`, a `make apply` ładuje je do gatewaya.
+W trybie docker robi to `nginx -s reload` bez przerwy w działaniu, w k3d Secret i rolling restart.
+W trybie docker odtworzenie kontenera gatewaya zamiast reloadu kosztuje −3 pkt. W k3d rolling restart jest normalną drogą i nie jest karany.
+
 ## Przebieg
 
 ```bash
@@ -17,6 +34,8 @@ make up        # mutacja per użytkownik (USER_ID albo git email) + zdrowy PKI +
 make break     # incydent startuje
 make status    # kontenery + ostatnie próbki prober-a
 make probe     # co widzi prawdziwy klient na brzegu   (make probe MESH=1: hop mTLS)
+make logs S=gateway   # logi usługi (gateway|backend|prober)
+make apply     # załaduj poprawione pliki z .state/pki/gateway/
 make hint      # podpowiedź, odblokowywana czasem (-5 pkt)
 make assert    # asercje publiczne + ukryte (ID + PASS/FAIL)
 make score     # wynik + podpisany raport .state/evidence/report.json(.sig)
@@ -26,11 +45,10 @@ make down      # stop (stan zostaje do debriefu); make clean usuwa wszystko
 Narzędzia, które masz do dyspozycji:
 
 - `scripts/gen_good_cert.sh`: wystawianie certyfikatów z istniejących CA w `.state/pki/ca/`.
-- `docker compose -p vantage-ca logs`.
+- `make logs S=<usługa>` (działa w obu trybach).
 - Plik `.state/evidence/probes.jsonl` z polem `err` przy każdej nieudanej próbce.
 
-Pliki gatewaya leżą w `.state/pki/gateway/` i są zamontowane do kontenera.
-Po zmianach wykonaj `docker compose -p vantage-ca exec gateway nginx -s reload`.
+Pliki gatewaya leżą w `.state/pki/gateway/`. Po zmianach wykonaj `make apply`.
 
 `make fix` to rozwiązanie referencyjne (SPOILER), z którego korzysta CI.
 
@@ -42,7 +60,7 @@ Po zmianach wykonaj `docker compose -p vantage-ca exec gateway nginx -s reload`.
 | Latency p95/p99 | `lat_ms` z udanych próbek w oknie stabilności | percentyl nearest-rank |
 | MTTR | `probes.jsonl` + `timeline.tsv` | od pierwszej nieudanej próbki po `break` do początku końcowej nieprzerwanej serii OK |
 | Health stable N s | prober | wszystkie próbki w ostatnich `STABLE_WINDOW` s OK i co najmniej 80% oczekiwanej liczby próbek |
-| Blast radius | `StartedAt` kontenerów (baseline przy `break`) | restart `backend`/`prober` = −10 pkt każdy, odtworzenie gatewaya zamiast reloadu = −3 pkt |
+| Blast radius | tożsamość instancji: `StartedAt` kontenera albo nazwa poda + liczba restartów (baseline przy `break`) | restart `backend`/`prober` = −10 pkt każdy; w trybie docker odtworzenie gatewaya zamiast reloadu = −3 pkt |
 | Hinty | `timeline.tsv` | −5 pkt za każdą |
 
 Wagi: availability 20, MTTR 35 (pełne do 10 min, 0 przy 60 min), p95 10, blast radius 15, ukryte asercje 20.

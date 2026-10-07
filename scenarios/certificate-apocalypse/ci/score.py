@@ -58,14 +58,10 @@ def pct(vals, p):
     return s[min(len(s) - 1, math.ceil(p / 100 * len(s)) - 1)]
 
 
-def started_at(svc):
-    cmd = ["docker", "compose", "-p", "vantage-ca", "--env-file", os.path.join(STATE, "scenario.env"),
-           "-f", os.path.join(SCN, "docker-compose.yml"), "ps", "-q", svc]
-    cid = subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
-    if not cid:
-        return None
-    return subprocess.run(["docker", "inspect", "-f", "{{.State.StartedAt}}", cid],
-                          capture_output=True, text=True).stdout.strip()
+def identities(name):
+    """svc -> instance identity (container StartedAt / pod name:restarts), see lib.sh snapshot()."""
+    rows = (l.rstrip("\n").split("\t", 1) for l in open(os.path.join(STATE, name)) if l.strip())
+    return {r[0]: (r[1] if len(r) > 1 else "") for r in rows}
 
 
 def sha256(path):
@@ -108,9 +104,11 @@ def main():
     p99 = pct(tail, 99)
 
     # Blast radius: services the incident did not require touching
-    base = dict(l.rstrip("\n").split("\t") for l in open(os.path.join(STATE, "baseline.tsv")))
-    restarted = [s for s in ("backend", "prober") if started_at(s) != base.get(s)]
-    gateway_recreated = started_at("gateway") != base.get("gateway")
+    # (assertions.sh writes current.tsv right before scoring)
+    base, cur = identities("baseline.tsv"), identities("current.tsv")
+    restarted = [s for s in ("backend", "prober") if cur.get(s) != base.get(s)]
+    # On k3d a rolling restart is the normal way to load a new Secret: no penalty.
+    gateway_recreated = env.get("MODE", "docker") == "docker" and cur.get("gateway") != base.get("gateway")
 
     asr = json.load(open(os.path.join(STATE, "assertions.json")))
     hidden_ratio = asr["hidden_pass"] / max(1, asr["hidden_total"])

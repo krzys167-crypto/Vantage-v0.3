@@ -5,13 +5,7 @@ source "$(dirname "$0")/lib.sh"
 require_state
 
 [[ -f "$STATE/broken" ]] && die "already broken (make down && make up to start over)"
-"${COMPOSE[@]}" ps --status running -q gateway | grep -q . || die "stack not running: make up"
-
-# Baseline for blast radius: container start times before the incident.
-for svc in backend gateway prober; do
-  id="$("${COMPOSE[@]}" ps -q "$svc")"
-  printf '%s\t%s\n' "$svc" "$(docker inspect -f '{{.State.StartedAt}}' "$id")"
-done > "$STATE/baseline.tsv"
+[[ -n "$(svc_identity gateway || true)" ]] || die "stack not running: make up"
 
 bad="$(dirname "$0")/gen_bad_cert.sh"
 case "$FRONT_FAULT" in
@@ -29,8 +23,10 @@ case "$BACK_FAULT" in
      "$bad" expired "$PKI/gateway/client" "$PKI/ca/mesh-ca" "gateway.mesh.internal" client >/dev/null ;;
 esac
 
-"${COMPOSE[@]}" exec -T gateway nginx -s reload >/dev/null 2>&1
+gateway_apply >/dev/null
+# Baseline for blast radius: instance identities right after the incident starts.
+snapshot "$STATE/baseline.tsv"
 touch "$STATE/broken"
 timeline "break"
 log "incident started: https://$VANTAGE_HOST:$GATEWAY_PORT/healthz is failing. Clock is running."
-log "evidence: make status | ./scripts/probe_tls.sh | docker compose logs | .state/evidence/probes.jsonl"
+log "evidence: make status | make probe | make probe MESH=1 | make logs S=gateway"

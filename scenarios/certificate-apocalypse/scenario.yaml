@@ -10,7 +10,8 @@ meta:
   skills: [x509-diagnosis, chain-building, mtls-trust, zero-downtime-reload]
 
 env:
-  mode: docker             # docker | k3d (k3d manifests: roadmap v1)
+  mode: docker             # docker | k3d (MODE=k3d make up)
+  manifests: k8s/manifests.yaml
   compose: docker-compose.yml
   seed: sha256(user_id + ":certificate-apocalypse:v0")
   user_mutation:

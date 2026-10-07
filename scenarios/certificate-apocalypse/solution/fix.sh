@@ -24,6 +24,6 @@ if ! openssl x509 -in "$gw/client.pem" -noout -checkend $((30*86400)) >/dev/null
   "$g" client "$gw/client" "$PKI/ca/mesh-ca" "gateway.mesh.internal" 90 >/dev/null
 fi
 
-"${COMPOSE[@]}" exec -T gateway nginx -t -q && "${COMPOSE[@]}" exec -T gateway nginx -s reload
+gateway_apply
 timeline "fix (reference solution)"
-log "reloaded gateway (zero-downtime, no restarts)"
+log "gateway updated ($(is_k8s && echo 'Secret + rolling restart' || echo 'nginx reload, zero downtime'))"

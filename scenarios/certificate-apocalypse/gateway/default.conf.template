@@ -8,7 +8,7 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
 
     location = /healthz {
-        proxy_pass https://backend.mesh.internal:9443/healthz;
+        proxy_pass https://${BACKEND_ADDR}/healthz;
 
         # mTLS to the backend
         proxy_ssl_certificate         /pki/gateway/client.pem;

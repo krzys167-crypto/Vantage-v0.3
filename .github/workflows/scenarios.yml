@@ -39,3 +39,29 @@ jobs:
             scenarios/certificate-apocalypse/.state/evidence/
             !scenarios/certificate-apocalypse/.state/evidence/signing.key
           if-no-files-found: ignore
+
+  certificate-apocalypse-k3d:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        seed:
+          - "000000000000000000000000000000000000000000000000000000000000000a"
+          - "000000110000000000000000000000000000000000000000000000000000000d"
+    steps:
+      - uses: actions/checkout@v4
+      - name: k3d cluster
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.7.4 bash
+          k3d cluster create vantage --agents 1 --no-lb --wait
+          kubectl get nodes
+      - name: self-test (MODE=k3d)
+        working-directory: scenarios/certificate-apocalypse
+        env:
+          MODE: k3d
+          KUBE_CONTEXT: k3d-vantage
+          SEED: ${{ matrix.seed }}
+          USER_ID: ci@vantage
+        run: make ci
+      - if: failure()
+        run: kubectl -n vantage-ca get all,events -o wide || true

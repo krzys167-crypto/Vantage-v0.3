@@ -23,6 +23,7 @@ services:
     depends_on: [backend]
     environment:
       VANTAGE_HOST: ${VANTAGE_HOST}
+      BACKEND_ADDR: backend.mesh.internal:9443
     volumes:
       - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./.state/pki/gateway:/pki/gateway

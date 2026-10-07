@@ -8,7 +8,11 @@ source "$(dirname "$0")/lib.sh"
 
 [[ -n "$PY" ]] || die "python3 not found"
 [[ "${RESET:-0}" == 1 ]] && rm -rf "$STATE"
-if [[ -f "$STATE/scenario.env" ]]; then log "state exists (RESET=1 to regenerate)"; exit 0; fi
+if [[ -f "$STATE/scenario.env" ]]; then
+  have="$(sed -n 's/^MODE=//p' "$STATE/scenario.env")"
+  [[ -z "${MODE:-}" || "$MODE" == "$have" ]] || die "state was created for MODE=$have; run 'make clean' first"
+  log "state exists (RESET=1 to regenerate)"; exit 0
+fi
 mkdir -p "$PKI"/{ca,gateway,backend,clients} "$EVID"
 
 user_id="${USER_ID:-$(git config user.email 2>/dev/null || echo anonymous)}"
@@ -23,9 +27,12 @@ flag_secret="$(printf '%s:flag' "$seed" | openssl dgst -sha256 -r | cut -c1-64)"
 
 cat > "$STATE/scenario.env" <<EOF
 SCENARIO=certificate-apocalypse
+MODE=${MODE:-docker}
+KUBE_CONTEXT=${KUBE_CONTEXT:-k3d-vantage}
 USER_ID=$user_id
 SEED=$seed
 VANTAGE_HOST=$host
+PROBE_TARGET=https://$host:8443/healthz
 GATEWAY_PORT=${GATEWAY_PORT:-8443}
 FRONT_FAULT=$front_fault
 BACK_FAULT=$back_fault
