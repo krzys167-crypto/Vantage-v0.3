@@ -148,7 +148,8 @@
               "dns_poison",
               "kafka_lag",
               "cpu_throttle",
-              "jwt_key_rotation_partial"
+              "jwt_key_rotation_partial",
+              "dns_record_missing"
             ]
           },
           "stage": {
@@ -323,26 +324,56 @@
               }
             },
             "recreate_penalty": {
-              "type": "object",
-              "required": [
-                "service",
-                "points"
-              ],
-              "properties": {
-                "service": {
-                  "type": "string"
+              "description": "restart penalty for a service in one runtime mode; one rule or a list",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "service",
+                    "points"
+                  ],
+                  "properties": {
+                    "service": {
+                      "type": "string"
+                    },
+                    "mode": {
+                      "enum": [
+                        "docker",
+                        "k3d"
+                      ]
+                    },
+                    "points": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  }
                 },
-                "mode": {
-                  "enum": [
-                    "docker",
-                    "k3d"
-                  ]
-                },
-                "points": {
-                  "type": "number",
-                  "minimum": 0
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "service",
+                      "points"
+                    ],
+                    "properties": {
+                      "service": {
+                        "type": "string"
+                      },
+                      "mode": {
+                        "enum": [
+                          "docker",
+                          "k3d"
+                        ]
+                      },
+                      "points": {
+                        "type": "number",
+                        "minimum": 0
+                      }
+                    }
+                  }
                 }
-              }
+              ]
             }
           }
         }

@@ -96,9 +96,11 @@ def main(scn):
     base, cur = identities(state, "baseline.tsv"), identities(state, "current.tsv")
     br = cfg["blast_radius"]
     restarted = [s for s in br["unaffected"] if cur.get(s) != base.get(s)]
-    rp = br.get("recreate_penalty") or {}
-    recreated = bool(rp) and env.get("MODE", "docker") == rp.get("mode", "docker") \
-        and cur.get(rp["service"]) != base.get(rp["service"])
+    # recreate_penalty: one rule or a list; a rule applies only in its runtime mode
+    rules = br.get("recreate_penalty") or []
+    rules = [rules] if isinstance(rules, dict) else rules
+    recreated = [r for r in rules if env.get("MODE", "docker") == r.get("mode", "docker")
+                 and cur.get(r["service"]) != base.get(r["service"])]
 
     asr = json.load(open(os.path.join(state, "assertions.json")))
     hidden_ratio = asr["hidden_pass"] / max(1, asr["hidden_total"])
@@ -113,7 +115,7 @@ def main(scn):
     penalties = {
         "hints": P["hint"] * hints,
         "restart_unaffected": P["restart_unaffected"] * len(restarted),
-        "recreated": rp.get("points", 0) * recreated,
+        "recreated": sum(r.get("points", 0) for r in recreated),
     }
     score = max(0.0, sum(parts.values()) - sum(penalties.values()))
     failed = not asr["public_pass"] or mttr is None
@@ -140,7 +142,7 @@ def main(scn):
         "generated_at": now, "incident_start": t_break,
         "sli": {"availability": round(availability, 4), "p95_ms": p95, "p99_ms": p99,
                 "probes": len(inc), "mttr_s": round(mttr, 1) if mttr else None},
-        "blast_radius": {"restarted_unaffected": restarted, "recreated": recreated},
+        "blast_radius": {"restarted_unaffected": restarted, "recreated": [r["service"] for r in recreated]},
         "hints_used": hints,
         "parts": {k: round(v, 2) for k, v in parts.items()},
         "penalties": penalties,
@@ -158,7 +160,7 @@ def main(scn):
 
     m = f"{mttr/60:.1f} min" if mttr else "not recovered"
     print(f"availability {availability:.1%} | MTTR {m} | p95 {p95} ms | hints {hints} | "
-          f"blast radius {restarted or 'none'}{' + ' + rp['service'] + ' recreated' if recreated else ''}")
+          f"blast radius {restarted or 'none'}{' + recreated ' + ','.join(r['service'] for r in recreated) if recreated else ''}")
     for k, v in parts.items():
         print(f"  {k:<16} {v:6.1f} / {W[k]}")
     for k, v in penalties.items():

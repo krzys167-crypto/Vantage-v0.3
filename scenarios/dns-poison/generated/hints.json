@@ -1,0 +1,17 @@
+[
+  {
+    "after_s": 300,
+    "cost": 5,
+    "text": "Compare three views of the same name: the authoritative answer (make dig), what the api believes (make resolve) and what it actually reached (make call, make logs S=api)."
+  },
+  {
+    "after_s": 600,
+    "cost": 5,
+    "text": "A fixed zone does nothing until the dns accepts it (make zone shows the served serial) and until cached answers expire - including cached NXDOMAINs (make flush)."
+  },
+  {
+    "after_s": 1200,
+    "cost": 5,
+    "text": "Two names are broken independently. Fix them where they are defined; overrides and disabled signature checks are graded as regressions."
+  }
+]

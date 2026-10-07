@@ -33,7 +33,9 @@ def semantic_errors(doc, scn_dir):
         errs.append("duplicate assertion ids")
     svc = {s["name"] for s in doc["services"]}
     br = doc["scoring"]["blast_radius"]
-    for s in br["unaffected"] + [br.get("recreate_penalty", {}).get("service", next(iter(svc)))]:
+    rules = br.get("recreate_penalty") or []
+    rules = [rules] if isinstance(rules, dict) else rules
+    for s in br["unaffected"] + [r["service"] for r in rules]:
         if s not in svc:
             errs.append(f"scoring.blast_radius references unknown service {s!r}")
     for f in doc["faults"]:
