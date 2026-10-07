@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Scenario self-test for CI: up -> break -> verify it is broken -> reference fix
 # -> wait for the stability window -> assertions -> score -> down.
-# Proves for a given seed that the incident is real and solvable.
 source "$(dirname "$0")/../scripts/lib.sh"
 cd "$SCN_DIR"
 export STABLE_WINDOW="${STABLE_WINDOW:-20}" RESET=1

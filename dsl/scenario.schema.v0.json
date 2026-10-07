@@ -3,107 +3,433 @@
   "$id": "https://vantage.dev/schemas/scenario.v0.json",
   "title": "Vantage Scenario DSL v0",
   "type": "object",
-  "required": ["apiVersion", "meta", "env", "services", "faults", "traffic", "assertions", "scoring", "evidence"],
+  "required": [
+    "apiVersion",
+    "meta",
+    "env",
+    "services",
+    "faults",
+    "traffic",
+    "assertions",
+    "scoring",
+    "evidence"
+  ],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": {"const": "vantage.dev/v0"},
+    "apiVersion": {
+      "const": "vantage.dev/v0"
+    },
     "meta": {
       "type": "object",
-      "required": ["id", "title", "version", "difficulty"],
+      "required": [
+        "id",
+        "title",
+        "version",
+        "difficulty"
+      ],
       "properties": {
-        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,62}$"},
-        "title": {"type": "string"},
-        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
-        "difficulty": {"type": "integer", "minimum": 1, "maximum": 5},
-        "est_minutes": {"type": "integer", "minimum": 1},
-        "tags": {"type": "array", "items": {"type": "string"}},
-        "skills": {"type": "array", "items": {"type": "string"}}
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{2,62}$"
+        },
+        "title": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "difficulty": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "est_minutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "env": {
       "type": "object",
-      "required": ["mode", "seed"],
+      "required": [
+        "mode",
+        "seed"
+      ],
       "properties": {
-        "mode": {"enum": ["docker", "k3d"]},
-        "compose": {"type": "string"},
-        "manifests": {"type": "string"},
-        "seed": {"type": "string"},
-        "user_mutation": {"type": "object", "additionalProperties": {"type": "string"}},
+        "mode": {
+          "enum": [
+            "docker",
+            "k3d"
+          ]
+        },
+        "compose": {
+          "type": "string"
+        },
+        "manifests": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "string"
+        },
+        "user_mutation": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "limits": {
           "type": "object",
-          "properties": {"cpus": {"type": "number", "exclusiveMinimum": 0}, "memory_mb": {"type": "integer", "minimum": 64}}
+          "properties": {
+            "cpus": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "memory_mb": {
+              "type": "integer",
+              "minimum": 64
+            }
+          }
         }
       }
     },
     "services": {
-      "type": "array", "minItems": 1,
+      "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "object", "required": ["name", "role"],
-        "properties": {"name": {"type": "string"}, "role": {"enum": ["target", "observer", "dependency"]}}
+        "type": "object",
+        "required": [
+          "name",
+          "role"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "target",
+              "observer",
+              "dependency"
+            ]
+          }
+        }
       }
     },
     "faults": {
-      "type": "array", "minItems": 1,
+      "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "object", "required": ["id", "target"],
+        "type": "object",
+        "required": [
+          "id",
+          "target"
+        ],
         "properties": {
-          "id": {"enum": ["tls_cert_expired", "x509_chain_incomplete", "invalid_truststore", "mtls_client_cert_expired",
-                          "time_skew", "dns_poison", "kafka_lag", "cpu_throttle"]},
-          "stage": {"type": "string"},
-          "target": {"type": "string"},
-          "params": {"type": "object"},
-          "at": {"type": "string", "description": "break | +<seconds> | checkpoint:<id>"}
+          "id": {
+            "enum": [
+              "tls_cert_expired",
+              "x509_chain_incomplete",
+              "invalid_truststore",
+              "mtls_client_cert_expired",
+              "time_skew",
+              "dns_poison",
+              "kafka_lag",
+              "cpu_throttle",
+              "jwt_key_rotation_partial"
+            ]
+          },
+          "stage": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "at": {
+            "type": "string",
+            "description": "break | +<seconds> | checkpoint:<id>"
+          }
         }
       }
     },
     "traffic": {
-      "type": "object", "required": ["sli", "slo"],
+      "type": "object",
+      "required": [
+        "sli",
+        "slo"
+      ],
       "properties": {
-        "synthetic": {"type": "object"},
-        "load": {"type": "object", "properties": {"tool": {"enum": ["k6", "vegeta", "hey"]}}},
-        "sli": {"type": "object"},
-        "slo": {"type": "object", "required": ["availability", "window_s"],
-                "properties": {"availability": {"type": "number", "maximum": 1}, "window_s": {"type": "integer", "minimum": 5}}}
+        "synthetic": {
+          "type": "object"
+        },
+        "load": {
+          "type": "object",
+          "properties": {
+            "tool": {
+              "enum": [
+                "k6",
+                "vegeta",
+                "hey"
+              ]
+            }
+          }
+        },
+        "sli": {
+          "type": "object"
+        },
+        "slo": {
+          "type": "object",
+          "required": [
+            "availability",
+            "window_s"
+          ],
+          "properties": {
+            "availability": {
+              "type": "number",
+              "maximum": 1
+            },
+            "window_s": {
+              "type": "integer",
+              "minimum": 5
+            }
+          }
+        }
       }
     },
     "assertions": {
-      "type": "object", "required": ["public"],
+      "type": "object",
+      "required": [
+        "public"
+      ],
       "properties": {
-        "public": {"$ref": "#/$defs/assertionList"},
-        "hidden": {"$ref": "#/$defs/assertionList"}
+        "public": {
+          "$ref": "#/$defs/assertionList"
+        },
+        "hidden": {
+          "$ref": "#/$defs/assertionList"
+        }
       }
     },
     "scoring": {
-      "type": "object", "required": ["weights", "tiers"],
+      "type": "object",
+      "required": [
+        "weights",
+        "time_to_recover",
+        "latency",
+        "penalties",
+        "caps",
+        "tiers",
+        "blast_radius"
+      ],
       "properties": {
-        "weights": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}},
-        "penalties": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}},
-        "caps": {"type": "object", "additionalProperties": {"type": "number"}},
-        "tiers": {"type": "object", "required": ["pass", "merit", "elite"],
-                  "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}}
+        "weights": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "penalties": {
+          "type": "object",
+          "required": [
+            "hint",
+            "restart_unaffected"
+          ],
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "caps": {
+          "type": "object",
+          "required": [
+            "public_fail",
+            "security_weakened"
+          ],
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "tiers": {
+          "type": "object",
+          "required": [
+            "pass",
+            "merit",
+            "elite"
+          ],
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "time_to_recover": {
+          "type": "object",
+          "required": [
+            "full_s",
+            "zero_s"
+          ],
+          "properties": {
+            "full_s": {
+              "type": "number",
+              "minimum": 0
+            },
+            "zero_s": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "latency": {
+          "type": "object",
+          "required": [
+            "full_p95_ms",
+            "zero_p95_ms"
+          ],
+          "properties": {
+            "full_p95_ms": {
+              "type": "number"
+            },
+            "zero_p95_ms": {
+              "type": "number"
+            }
+          }
+        },
+        "blast_radius": {
+          "type": "object",
+          "required": [
+            "unaffected"
+          ],
+          "properties": {
+            "unaffected": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "recreate_penalty": {
+              "type": "object",
+              "required": [
+                "service",
+                "points"
+              ],
+              "properties": {
+                "service": {
+                  "type": "string"
+                },
+                "mode": {
+                  "enum": [
+                    "docker",
+                    "k3d"
+                  ]
+                },
+                "points": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
       }
     },
     "evidence": {
-      "type": "object", "required": ["collect", "sign"],
+      "type": "object",
+      "required": [
+        "collect",
+        "sign"
+      ],
       "properties": {
-        "collect": {"type": "array", "items": {"type": "string"}},
-        "sign": {"type": "object", "required": ["alg"], "properties": {"alg": {"enum": ["ed25519"]}}},
-        "roadmap": {"type": "array"}
+        "collect": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sign": {
+          "type": "object",
+          "required": [
+            "alg"
+          ],
+          "properties": {
+            "alg": {
+              "enum": [
+                "ed25519"
+              ]
+            }
+          }
+        },
+        "roadmap": {
+          "type": "array"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "dirs (relative to scenario) whose files are hashed into the report"
+        }
       }
     },
     "hints": {
       "type": "array",
-      "items": {"type": "object", "required": ["after_s", "text"],
-                "properties": {"after_s": {"type": "integer", "minimum": 0}, "cost": {"type": "number"}, "text": {"type": "string"}}}
+      "items": {
+        "type": "object",
+        "required": [
+          "after_s",
+          "text"
+        ],
+        "properties": {
+          "after_s": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cost": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "$defs": {
     "assertionList": {
       "type": "array",
       "items": {
-        "type": "object", "required": ["id", "type"],
-        "properties": {"id": {"type": "string", "pattern": "^[AH][0-9]+$"}, "type": {"type": "string"},
-                       "security_critical": {"type": "boolean"}}
+        "type": "object",
+        "required": [
+          "id",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[AH][0-9]+$"
+          },
+          "type": {
+            "type": "string"
+          },
+          "security_critical": {
+            "type": "boolean"
+          }
+        }
       }
     }
   }

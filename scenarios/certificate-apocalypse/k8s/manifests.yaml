@@ -1,4 +1,4 @@
-# Certificate Apocalypse on k3d. Applied by scripts/up.sh into namespace vantage-ca.
+# Certificate Apocalypse on k3d. Applied by framework scenario_up into namespace vantage-ca.
 # ConfigMaps `scenario` + `app-code` and Secrets `gateway-pki`, `backend-pki`,
 # `clients-ca` are created from .state/ and the repo files by up.sh.
 apiVersion: apps/v1

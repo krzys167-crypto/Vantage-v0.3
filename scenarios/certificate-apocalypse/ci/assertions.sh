@@ -7,21 +7,12 @@ require_state
 
 WINDOW="${STABLE_WINDOW:-60}"
 ROOT="$PKI/clients/root-ca.pem"
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-edge_open 'rm -rf "$tmp"'
+assert_begin; tmp="$ASSERT_TMP"
+edge_open 'rm -rf "$ASSERT_TMP"'
 evidence_sync
-results="$tmp/results.tsv"; : > "$results"
-
-record() { # id visibility name pass(0/1) detail
-  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "${5//$'\t'/ }" >> "$results"
-  local mark; mark=$([[ "$4" == 1 ]] && echo PASS || echo FAIL)
-  if [[ "$2" == public ]]; then printf '  %-4s %-22s %s  %s\n' "$1" "$3" "$mark" "$5"
-  else printf '  %-4s %-22s %s\n' "$1" "(hidden)" "$mark"; fi
-}
-ok() { "$@" >/dev/null 2>&1 && echo 1 || echo 0; }
 
 # --- capture what the edge serves -------------------------------------------
-echo | openssl s_client -connect "127.0.0.1:$GATEWAY_PORT" -servername "$VANTAGE_HOST" \
+echo | openssl s_client -connect "127.0.0.1:$EDGE_PORT" -servername "$VANTAGE_HOST" \
   -CAfile "$ROOT" -verify_return_error -showcerts > "$tmp/sclient.txt" 2>&1 || true
 awk '/BEGIN CERT/{n++} /BEGIN CERT/,/END CERT/{print > (dir "/chain-" n ".pem")}' dir="$tmp" "$tmp/sclient.txt"
 leaf="$tmp/chain-1.pem"; nchain=$(ls "$tmp"/chain-*.pem 2>/dev/null | wc -l | tr -d ' ')
@@ -59,29 +50,14 @@ record A5 public key_matches_cert "$p" "gateway/leaf.key vs served leaf"
 
 # A6 end-to-end request through mTLS hop returns 200 + backend flag
 hdrs="$(curl -sS --noproxy '*' -o /dev/null -D - --max-time 5 --cacert "$ROOT" \
-  --resolve "$VANTAGE_HOST:$GATEWAY_PORT:127.0.0.1" "https://$VANTAGE_HOST:$GATEWAY_PORT/healthz" 2>&1 || true)"
+  --resolve "$VANTAGE_HOST:$EDGE_PORT:127.0.0.1" "https://$VANTAGE_HOST:$EDGE_PORT/healthz" 2>&1 || true)"
 code="$(printf '%s' "$hdrs" | awk 'NR==1{print $2}')"
 flag="$(printf '%s' "$hdrs" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-vantage-flag"{print $2}')"
 [[ "$code" == 200 && -n "$flag" ]] && p=1 || p=0
 record A6 public mtls_trust_ok "$p" "http=$code flag=${flag:-none}"
 
 # A7 prober saw only healthy responses for the whole window
-read -r p detail < <("$PY" - "$EVID/probes.jsonl" "$WINDOW" <<'EOF'
-import json, sys, time
-path, win = sys.argv[1], float(sys.argv[2])
-now = time.time()
-try:
-    rows = [json.loads(l) for l in open(path) if l.strip()]
-except FileNotFoundError:
-    rows = []
-w = [r for r in rows if r["ts"] >= now - win]
-bad = sum(1 for r in w if not r["ok"])
-# need coverage of the window: at least 80% of expected samples at 0.5 s
-enough = len(w) >= 0.8 * win / 0.5
-print(1 if (w and bad == 0 and enough) else 0, f"{len(w)} probes in {int(win)}s, {bad} failed")
-EOF
-)
-record A7 public "health_stable_${WINDOW}s" "$p" "$detail"
+assert_stable_window A7 "$WINDOW"
 
 # A8 no TLS errors in gateway log during the window
 errs="$(svc_logs gateway "$WINDOW" | grep -ciE 'SSL_do_handshake|certificate verify|upstream SSL|cannot load certificate' || true)"
@@ -140,18 +116,4 @@ record H5 hidden backend_requires_client_cert "${p:-0}" ""
 [[ "$san" == "DNS:$VANTAGE_HOST" ]] && p=1 || p=0
 record H6 hidden san_minimal "$p" ""
 
-snapshot "$STATE/current.tsv"   # blast radius input for score.py
-"$PY" - "$results" "$STATE/assertions.json" "$WINDOW" <<'EOF'
-import json, sys, time
-rows = [l.rstrip("\n").split("\t") for l in open(sys.argv[1]) if l.strip()]
-out = {"ts": time.time(), "window_s": float(sys.argv[3]), "assertions": [
-    {"id": r[0], "visibility": r[1], "name": r[2], "pass": r[3] == "1", "detail": r[4] if r[1] == "public" else ""}
-    for r in rows]}
-out["public_pass"] = all(a["pass"] for a in out["assertions"] if a["visibility"] == "public")
-out["hidden_pass"] = sum(a["pass"] for a in out["assertions"] if a["visibility"] == "hidden")
-out["hidden_total"] = sum(1 for a in out["assertions"] if a["visibility"] == "hidden")
-json.dump(out, open(sys.argv[2], "w"), indent=2)
-
-print(f"public: {'PASS' if out['public_pass'] else 'FAIL'}   hidden: {out['hidden_pass']}/{out['hidden_total']}")
-sys.exit(0 if out["public_pass"] else 1)
-EOF
+assert_finish

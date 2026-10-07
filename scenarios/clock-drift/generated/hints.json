@@ -1,0 +1,17 @@
+[
+  {
+    "after_s": 300,
+    "cost": 5,
+    "text": "Read the rejection reason, not just the status code: make call shows the api's WWW-Authenticate error. Decode the token (scripts/jwt.py decode) and compare its times with yours."
+  },
+  {
+    "after_s": 600,
+    "cost": 5,
+    "text": "Tokens are judged by two clocks. make time shows which host disagrees with NTP. Widening leeway hides the symptom and is graded as a security regression."
+  },
+  {
+    "after_s": 1200,
+    "cost": 5,
+    "text": "There is a second, independent fault: the issuer rotated its signing key. The api keyring must hold the active kid with the issuer's exact key."
+  }
+]

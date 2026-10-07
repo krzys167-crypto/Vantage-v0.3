@@ -1,0 +1,85 @@
+# Vantage Scenario DSL v0 — validated by dsl/scenario.schema.v0.json
+apiVersion: vantage.dev/v0
+meta:
+  id: clock-drift
+  title: Clock Drift
+  version: 0.1.0
+  difficulty: 2
+  est_minutes: 30
+  tags: [time, ntp, jwt, auth, key-rotation]
+  skills: [clock-skew-diagnosis, jwt-claims, key-rotation, resisting-leeway-hacks]
+
+env:
+  mode: docker             # docker | k3d (MODE=k3d make up)
+  compose: docker-compose.yml
+  manifests: k8s/manifests.yaml
+  seed: sha256(user_id + ":clock-drift:v0")
+  user_mutation:
+    skew_service: "seed[6] % 2 -> auth | api"
+    skew_direction: "seed[7] % 2 -> + | -"
+    skew_seconds: "180 + seed[9] * 24"
+    rotation_variant: "seed[8] % 2 -> kid missing | stale key under new kid"
+    kid_prefix: "k-{seed[0:4]}"
+    decoy_log: "seed[10] % 4"
+    flag: "HMAC(sha256(seed:flag), host)[0:24]"
+  limits: {cpus: 1.0, memory_mb: 384}
+
+services:
+  - {name: auth,   role: target,   port: 8081}
+  - {name: api,    role: target,   port: 8080, upstream: auth}
+  - {name: prober, role: observer, interval_s: 0.5}
+
+faults:
+  - {id: time_skew,                stage: clock, target: auth, params: {offset_s: "±(180..540)", alt_target: api}, at: break}
+  - {id: jwt_key_rotation_partial, stage: keys,  target: api,  params: {variants: [kid_missing, stale_key]}, at: break}
+
+traffic:
+  synthetic: {tool: prober, interval_s: 0.5, timeout_s: 2, flow: "auth /token -> api /orders"}
+  sli:
+    availability: "ok_probes / all_probes since break"
+    latency: {p95_ms: 50, p99_ms: 200}
+  slo: {availability: 0.99, window_s: 60}
+
+assertions:
+  public:
+    - {id: A1, type: token_issued}
+    - {id: A2, type: api_accepts_token, expect: {status: 200, header: X-Vantage-Flag}}
+    - {id: A3, type: clocks_in_sync, max_offset_s: 2}
+    - {id: A4, type: active_kid_trusted}
+    - {id: A5, type: health_stable_Ns, window_s: 60}
+    - {id: A6, type: log_absence, service: api, pattern: "reject 401"}
+  hidden:
+    - {id: H1, type: leeway_bounded, max_s: 30, security_critical: true}
+    - {id: H2, type: forged_token_rejected, security_critical: true}
+    - {id: H3, type: expired_token_rejected, security_critical: true}
+    - {id: H4, type: token_ttl_bounded, max_s: 300}
+    - {id: H5, type: audience_enforced, security_critical: true}
+    - {id: H6, type: flag_authentic}
+
+scoring:
+  weights: {availability: 20, time_to_recover: 35, latency: 10, blast_radius: 15, hidden: 20}
+  time_to_recover: {full_s: 600, zero_s: 3600}
+  latency: {full_p95_ms: 50, zero_p95_ms: 500}
+  penalties: {hint: 5, restart_unaffected: 10}
+  blast_radius:
+    unaffected: [prober]
+    # docker: keys, config and clock are read per request, a restart is never needed
+    recreate_penalty: {service: api, mode: docker, points: 3}
+  caps: {public_fail: 40, security_weakened: 65}
+  tiers: {pass: 60, merit: 80, elite: 92}
+
+evidence:
+  collect: [probes_jsonl, timeline_tsv, assertions_json, file_hashes, instance_identities]
+  files: [.state/config, .state/clock]
+  sign: {alg: ed25519, artifact: report.json}
+
+hints:
+  - after_s: 300
+    cost: 5
+    text: "Read the rejection reason, not just the status code: make call shows the api's WWW-Authenticate error. Decode the token (scripts/jwt.py decode) and compare its times with yours."
+  - after_s: 600
+    cost: 5
+    text: "Tokens are judged by two clocks. make time shows which host disagrees with NTP. Widening leeway hides the symptom and is graded as a security regression."
+  - after_s: 1200
+    cost: 5
+    text: "There is a second, independent fault: the issuer rotated its signing key. The api keyring must hold the active kid with the issuer's exact key."

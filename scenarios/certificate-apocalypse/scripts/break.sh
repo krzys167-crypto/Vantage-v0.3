@@ -28,5 +28,5 @@ gateway_apply >/dev/null
 snapshot "$STATE/baseline.tsv"
 touch "$STATE/broken"
 timeline "break"
-log "incident started: https://$VANTAGE_HOST:$GATEWAY_PORT/healthz is failing. Clock is running."
+log "incident started: https://$VANTAGE_HOST:$EDGE_PORT/healthz is failing. Clock is running."
 log "evidence: make status | make probe | make probe MESH=1 | make logs S=gateway"

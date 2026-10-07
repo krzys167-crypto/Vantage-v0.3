@@ -10,23 +10,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install pyyaml jsonschema
-      - run: python dsl/validate.py scenarios/*/scenario.yaml
+      # schema + semantic checks, and generated/ must match scenario.yaml
+      - run: python dsl/validate.py --check
 
-  certificate-apocalypse:
+  docker:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # seed chars 6,7 select the faults: even/even, even/odd, odd/even, odd/odd
+        scenario: [certificate-apocalypse, clock-drift]
+        # seed nibbles 6..8 select the faults: cover every branch
         seed:
           - "000000000000000000000000000000000000000000000000000000000000000a"
           - "000000010000000000000000000000000000000000000000000000000000000b"
-          - "000000100000000000000000000000000000000000000000000000000000000c"
-          - "000000110000000000000000000000000000000000000000000000000000000d"
+          - "000000101000000000000000000000000000000000000000000000000000000c"
+          - "000000111000000000000000000000000000000000000000000000000000000d"
     steps:
       - uses: actions/checkout@v4
       - name: self-test
-        working-directory: scenarios/certificate-apocalypse
+        working-directory: scenarios/${{ matrix.scenario }}
         env:
           SEED: ${{ matrix.seed }}
           USER_ID: ci@vantage
@@ -34,20 +36,21 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: evidence-${{ matrix.seed }}
+          name: evidence-${{ matrix.scenario }}-${{ matrix.seed }}
           path: |
-            scenarios/certificate-apocalypse/.state/evidence/
-            !scenarios/certificate-apocalypse/.state/evidence/signing.key
+            scenarios/${{ matrix.scenario }}/.state/evidence/
+            !scenarios/${{ matrix.scenario }}/.state/evidence/signing.key
           if-no-files-found: ignore
 
-  certificate-apocalypse-k3d:
+  k3d:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        scenario: [certificate-apocalypse, clock-drift]
         seed:
           - "000000000000000000000000000000000000000000000000000000000000000a"
-          - "000000110000000000000000000000000000000000000000000000000000000d"
+          - "000000111000000000000000000000000000000000000000000000000000000d"
     steps:
       - uses: actions/checkout@v4
       - name: k3d cluster
@@ -56,7 +59,7 @@ jobs:
           k3d cluster create vantage --agents 1 --no-lb --wait
           kubectl get nodes
       - name: self-test (MODE=k3d)
-        working-directory: scenarios/certificate-apocalypse
+        working-directory: scenarios/${{ matrix.scenario }}
         env:
           MODE: k3d
           KUBE_CONTEXT: k3d-vantage
@@ -64,4 +67,4 @@ jobs:
           USER_ID: ci@vantage
         run: make ci
       - if: failure()
-        run: kubectl -n vantage-ca get all,events -o wide || true
+        run: kubectl get all,events -A -o wide | grep -E "vantage|NAME" || true
