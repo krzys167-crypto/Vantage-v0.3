@@ -33,3 +33,13 @@ Kod wyjścia `0` oznacza, że środowisko jest gotowe. `1` oznacza, że brakuje 
 Można to wykorzystać jako bramkę przed `make up` albo w CI.
 
 Na Linuksie i macOS (`pwsh`) skrypt działa tylko w trybie `-CheckOnly`.
+
+## Scenariusze
+
+| Scenariusz | Opis | Uruchomienie |
+|---|---|---|
+| [Certificate Apocalypse](scenarios/certificate-apocalypse/) | wygasły/niepełny łańcuch TLS na brzegu + zepsute mTLS do backendu | `cd scenarios/certificate-apocalypse && make up break` |
+
+Scenariusze opisuje DSL v0 (`dsl/scenario.schema.v0.json`). Walidacja: `python dsl/validate.py`.
+Plan rozwoju DSL jest w [docs/dsl-roadmap.md](docs/dsl-roadmap.md).
+CI (`.github/workflows/scenarios.yml`) uruchamia self-test każdego scenariusza dla wszystkich kombinacji usterek.

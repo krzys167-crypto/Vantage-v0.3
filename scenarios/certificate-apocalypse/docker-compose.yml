@@ -1,0 +1,53 @@
+name: vantage-ca
+
+networks:
+  mesh:
+
+services:
+  backend:
+    image: ${PYTHON_IMAGE}
+    command: ["python", "-u", "/app/server.py"]
+    environment:
+      VANTAGE_HOST: ${VANTAGE_HOST}
+      DECOY_HOST: ${DECOY_HOST}
+    volumes:
+      - ./backend/server.py:/app/server.py:ro
+      - ./.state/pki/backend:/pki/backend:ro
+    networks:
+      mesh:
+        aliases: [backend.mesh.internal]
+    restart: unless-stopped
+
+  gateway:
+    image: ${NGINX_IMAGE}
+    depends_on: [backend]
+    environment:
+      VANTAGE_HOST: ${VANTAGE_HOST}
+      BACKEND_ADDR: backend.mesh.internal:9443
+    volumes:
+      - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./.state/pki/gateway:/pki/gateway
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT}:8443"
+    networks:
+      mesh:
+        aliases: ["${VANTAGE_HOST}"]
+    restart: unless-stopped
+
+  # Synthetic client: one request every 0.5 s, the source of truth for SLIs.
+  prober:
+    image: ${PYTHON_IMAGE}
+    depends_on: [gateway]
+    command: ["python", "-u", "/app/probe.py"]
+    environment:
+      TARGET: https://${VANTAGE_HOST}:8443/healthz
+      CA_FILE: /pki/clients/root-ca.pem
+      OUT: /evidence/probes.jsonl
+    volumes:
+      - ./prober/probe.py:/app/probe.py:ro
+      - ./.state/pki/clients:/pki/clients:ro
+      - ./.state/evidence:/evidence
+      # read-only view of the backend PKI, used only by hidden assertion H5
+      - ./.state/pki/backend:/pki/backend:ro
+    networks: [mesh]
+    restart: unless-stopped

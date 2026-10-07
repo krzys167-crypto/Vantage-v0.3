@@ -1,0 +1,57 @@
+SHELL := bash
+.DEFAULT_GOAL := help
+PY ?= $(shell command -v python3 || command -v python)
+# MODE=docker (default) | k3d.  Fixed per run in .state/scenario.env by `make up`.
+export MODE ?= docker
+export KUBE_CONTEXT ?= k3d-vantage
+
+.PHONY: help cluster up break status logs probe apply hint assert score down clean load fix ci
+
+help: ## list targets
+	@grep -hE '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
+
+cluster: ## k3d only: create the local cluster (install.ps1 does this on Windows)
+	@k3d cluster list vantage >/dev/null 2>&1 || k3d cluster create vantage --agents 1 --wait
+
+up: ## per-user mutation + healthy PKI + start (MODE=docker|k3d)
+	@bash scripts/up.sh
+
+break: ## start the incident (clock starts)
+	@bash scripts/break.sh
+
+status: ## workloads + last 10 probes
+	@bash scripts/ctl.sh status
+
+logs: ## service logs: make logs S=gateway|backend|prober
+	@bash scripts/ctl.sh logs $(or $(S),gateway)
+
+probe: ## inspect edge TLS (make probe MESH=1 for the mTLS hop)
+	@bash scripts/probe_tls.sh $(if $(MESH),mesh,)
+
+apply: ## load edited .state/pki/gateway into the gateway (reload / rolling restart)
+	@bash scripts/ctl.sh apply
+
+hint: ## next hint (time-gated, -5 pts each)
+	@bash scripts/hints.sh
+
+assert: ## run public + hidden assertions
+	@bash ci/assertions.sh
+
+score: assert ## assertions + score + signed report
+	@$(PY) ci/score.py
+
+load: ## optional k6 load, docker mode (needs grafana/k6 image)
+	@source .state/scenario.env && docker run --rm -i --network vantage-ca_mesh \
+	  -e TARGET=https://$$VANTAGE_HOST:8443/healthz grafana/k6 run - < load/k6_load.js
+
+fix: ## SPOILER: reference solution
+	@bash solution/fix.sh
+
+ci: ## full self-test: up, break, fix, assert, score, down
+	@bash ci/run_scenario.sh
+
+down: ## stop (keeps .state for the debrief)
+	@bash scripts/down.sh
+
+clean: down ## remove all state, PKI and evidence
+	@rm -rf .state

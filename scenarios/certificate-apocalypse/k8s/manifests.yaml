@@ -1,0 +1,127 @@
+# Certificate Apocalypse on k3d. Applied by scripts/up.sh into namespace vantage-ca.
+# ConfigMaps `scenario` + `app-code` and Secrets `gateway-pki`, `backend-pki`,
+# `clients-ca` are created from .state/ and the repo files by up.sh.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backend, labels: {app: backend}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: backend}}
+  template:
+    metadata: {labels: {app: backend}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: backend
+          image: mirror.gcr.io/library/python:3.12-alpine
+          command: ["python", "-u", "/app/server.py"]
+          envFrom: [{configMapRef: {name: scenario}}]
+          ports: [{containerPort: 9443}]
+          readinessProbe: {tcpSocket: {port: 9443}, periodSeconds: 2}
+          resources: {limits: {cpu: 250m, memory: 128Mi}, requests: {cpu: 25m, memory: 32Mi}}
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true}
+          volumeMounts:
+            - {name: code, mountPath: /app/server.py, subPath: server.py}
+            - {name: pki, mountPath: /pki/backend, readOnly: true}
+      volumes:
+        - {name: code, configMap: {name: app-code}}
+        - {name: pki, secret: {secretName: backend-pki}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: backend}
+spec:
+  selector: {app: backend}
+  ports: [{port: 9443, targetPort: 9443}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: gateway, labels: {app: gateway}}
+spec:
+  replicas: 2
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app: gateway}}
+  template:
+    metadata: {labels: {app: gateway}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: nginx
+          image: mirror.gcr.io/library/nginx:1.27-alpine
+          envFrom: [{configMapRef: {name: scenario}}]
+          env: [{name: BACKEND_ADDR, value: "backend:9443"}]
+          ports: [{containerPort: 8443}]
+          readinessProbe: {tcpSocket: {port: 8443}, periodSeconds: 2}
+          resources: {limits: {cpu: 250m, memory: 128Mi}, requests: {cpu: 25m, memory: 32Mi}}
+          volumeMounts:
+            - {name: code, mountPath: /etc/nginx/templates/default.conf.template, subPath: default.conf.template}
+            - {name: pki, mountPath: /pki/gateway, readOnly: true}
+      volumes:
+        - {name: code, configMap: {name: app-code}}
+        - {name: pki, secret: {secretName: gateway-pki}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gateway}
+spec:
+  selector: {app: gateway}
+  ports: [{port: 8443, targetPort: 8443}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: prober, labels: {app: prober}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prober}}
+  template:
+    metadata: {labels: {app: prober}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: prober
+          image: mirror.gcr.io/library/python:3.12-alpine
+          command: ["python", "-u", "/app/probe.py"]
+          env:
+            - {name: TARGET, valueFrom: {configMapKeyRef: {name: scenario, key: PROBE_TARGET}}}
+            - {name: CONNECT_ADDR, value: "gateway:8443"}
+            - {name: CA_FILE, value: /pki/clients/root-ca.pem}
+            - {name: OUT, value: "-"}
+            - {name: BACKEND_DIAL, value: backend}
+          resources: {limits: {cpu: 100m, memory: 64Mi}, requests: {cpu: 10m, memory: 16Mi}}
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true}
+          volumeMounts:
+            - {name: code, mountPath: /app/probe.py, subPath: probe.py}
+            - {name: tmp, mountPath: /tmp}
+            - {name: clients, mountPath: /pki/clients, readOnly: true}
+            # only the mesh CA, used by hidden assertion H5
+            - {name: backend-ca, mountPath: /pki/backend, readOnly: true}
+      volumes:
+        - {name: code, configMap: {name: app-code}}
+        - {name: clients, secret: {secretName: clients-ca}}
+        - {name: tmp, emptyDir: {sizeLimit: 1Mi}}
+        - {name: backend-ca, secret: {secretName: backend-pki, items: [{key: mesh-ca.pem, path: mesh-ca.pem}]}}
+---
+# Isolation: only the gateway may reach the backend; nothing in the namespace
+# may leave it (no egress to the internet from scenario workloads).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: backend-from-gateway}
+spec:
+  podSelector: {matchLabels: {app: backend}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: gateway}}
+        - podSelector: {matchLabels: {app: prober}}   # H5 checks mTLS is still enforced
+      ports: [{port: 9443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: no-external-egress}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to: [{podSelector: {}}]
+    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]

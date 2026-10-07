@@ -1,0 +1,79 @@
+# Vantage Scenario DSL v0 — validated by dsl/scenario.schema.v0.json
+apiVersion: vantage.dev/v0
+meta:
+  id: certificate-apocalypse
+  title: Certificate Apocalypse
+  version: 0.1.0
+  difficulty: 2            # 1..5
+  est_minutes: 30
+  tags: [tls, x509, mtls, pki, nginx]
+  skills: [x509-diagnosis, chain-building, mtls-trust, zero-downtime-reload]
+
+env:
+  mode: docker             # docker | k3d (MODE=k3d make up)
+  manifests: k8s/manifests.yaml
+  compose: docker-compose.yml
+  seed: sha256(user_id + ":certificate-apocalypse:v0")
+  user_mutation:
+    hostname: "api-{seed[0:6]}.vantage.local"
+    front_fault: "seed[6] % 2"       # picks one of faults[stage=edge]
+    back_fault: "seed[7] % 2"        # picks one of faults[stage=mesh]
+    decoy_log: "seed[8] % 4"
+    flag: "HMAC(sha256(seed:flag), hostname)[0:24]"
+  limits: {cpus: 1.0, memory_mb: 512}
+
+services:
+  - {name: backend, role: target,  port: 9443, tls: mtls-required}
+  - {name: gateway, role: target,  port: 8443, tls: edge, upstream: backend}
+  - {name: prober,  role: observer, interval_s: 0.5}
+
+faults:
+  - {id: tls_cert_expired,         stage: edge, target: gateway, params: {not_after: "-1d", keep_key: true}, at: break}
+  - {id: x509_chain_incomplete,    stage: edge, target: gateway, params: {bundle: leaf-only}, at: break}
+  - {id: invalid_truststore,       stage: mesh, target: gateway, params: {replace_with: rogue-ca, same_cn: true}, at: break}
+  - {id: mtls_client_cert_expired, stage: mesh, target: gateway, params: {not_after: "-1d"}, at: break}
+  # catalog entries for future scenarios: time_skew, dns_poison, kafka_lag, cpu_throttle
+
+traffic:
+  synthetic: {tool: prober, interval_s: 0.5, timeout_s: 2, trust: public-root-only}
+  load: {tool: k6, script: load/k6_load.js, rate_rps: 50, duration_s: 60, optional: true}
+  sli:
+    availability: "ok_probes / all_probes since break"
+    latency: {p95_ms: 50, p99_ms: 200}
+  slo: {availability: 0.99, window_s: 60}
+
+assertions:
+  public:
+    - {id: A1, type: tls_handshake_ok,  trust: public-root}
+    - {id: A2, type: x509_not_expired}
+    - {id: A3, type: x509_chain_ok,     min_chain: 2}
+    - {id: A4, type: san_matches_host}
+    - {id: A5, type: key_matches_cert}
+    - {id: A6, type: mtls_trust_ok,     expect: {status: 200, header: X-Vantage-Flag}}
+    - {id: A7, type: health_stable_Ns,  window_s: 60}
+    - {id: A8, type: log_absence,       service: gateway, pattern: "SSL_do_handshake|certificate verify|upstream SSL"}
+  hidden:        # only id + pass/fail reach the trainee
+    - {id: H1, type: validity_window,   min_days_left: 30, max_lifetime_days: 398}
+    - {id: H2, type: key_strength,      ec_min: 256, rsa_min: 2048}
+    - {id: H3, type: upstream_verify_on, security_critical: true}
+    - {id: H4, type: flag_authentic}
+    - {id: H5, type: backend_requires_client_cert, security_critical: true}
+    - {id: H6, type: san_minimal}
+
+scoring:
+  weights: {availability: 20, time_to_recover: 35, latency: 10, blast_radius: 15, hidden: 20}
+  time_to_recover: {full_s: 600, zero_s: 3600}
+  latency: {full_p95_ms: 50, zero_p95_ms: 500}
+  penalties: {hint: 5, restart_unaffected: 10, gateway_recreated: 3}
+  caps: {public_fail: 40, security_weakened: 65}
+  tiers: {pass: 60, merit: 80, elite: 92}
+
+evidence:
+  collect: [probes_jsonl, timeline_tsv, assertions_json, file_hashes, container_start_times]
+  sign: {alg: ed25519, artifact: report.json}
+  roadmap: [bash_history, kubectl_trace, otel_spans, cosign_images]
+
+hints:
+  - {after_s: 300,  cost: 5, text: "Compare what a real client sees with what is on disk."}
+  - {after_s: 600,  cost: 5, text: "Two TLS hops. A 502 after the edge works means the mTLS hop."}
+  - {after_s: 1200, cost: 5, text: "Re-issue only what is broken, keep keys, fullchain = leaf + intermediate, reload."}
