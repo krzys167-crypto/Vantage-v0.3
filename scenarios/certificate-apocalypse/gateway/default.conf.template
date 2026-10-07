@@ -1,0 +1,30 @@
+# Rendered by the nginx image entrypoint (envsubst on defined env vars only).
+server {
+    listen 8443 ssl;
+    server_name ${VANTAGE_HOST};
+
+    ssl_certificate     /pki/gateway/fullchain.pem;
+    ssl_certificate_key /pki/gateway/leaf.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    location = /healthz {
+        proxy_pass https://backend.mesh.internal:9443/healthz;
+
+        # mTLS to the backend
+        proxy_ssl_certificate         /pki/gateway/client.pem;
+        proxy_ssl_certificate_key     /pki/gateway/client.key;
+        proxy_ssl_trusted_certificate /pki/gateway/mesh-ca.pem;
+        proxy_ssl_verify              on;
+        proxy_ssl_verify_depth        2;
+        proxy_ssl_name                backend.mesh.internal;
+        proxy_ssl_server_name         on;
+        proxy_ssl_session_reuse       off;
+
+        proxy_connect_timeout 2s;
+        proxy_read_timeout    2s;
+    }
+
+    location / {
+        return 404;
+    }
+}
