@@ -1,3 +1,4 @@
 .vantage/
 .state/
 __pycache__/
+grader/.data/

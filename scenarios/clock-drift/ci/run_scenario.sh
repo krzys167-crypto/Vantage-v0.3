@@ -18,3 +18,5 @@ log "waiting ${STABLE_WINDOW}s + margin for the stability window"
 sleep $(( STABLE_WINDOW + 8 ))   # +margin: on k3d the old api pod drains after the rollout
 bash ci/assertions.sh
 "$PY" ../../framework/score.py .
+# graded run: also let the grader score the same attempt from its own evidence
+if grader_enabled; then bash ../../framework/submit.sh .; fi

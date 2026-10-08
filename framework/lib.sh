@@ -40,10 +40,53 @@ require_state() {
 
 is_k8s() { [[ "${MODE:-docker}" == k3d ]]; }
 
-# Per-user seed: sha256(user_id:scenario:salt). SEED env overrides (CI matrix).
+# Seed for this run.
+#   GRADER_URL set -> the grader issues a fresh random seed per attempt (graded run)
+#   otherwise      -> sha256(user_id:scenario:salt), practice run; SEED env overrides (CI matrix)
 derive_seed() { # scenario_id
   local user_id="${USER_ID:-$(git config user.email 2>/dev/null || echo anonymous)}"
+  if grader_enabled && [[ -z "${SEED:-}" ]]; then
+    grader create "$STATE" "$1" "$user_id"
+    return
+  fi
   printf '%s' "${SEED:-$(printf '%s:%s:v0' "$user_id" "$1" | openssl dgst -sha256 -r | cut -c1-64)}"
+}
+
+# --- grader (server-side scoring, see docs/grader.md) ---------------------------
+grader_enabled() { [[ -n "${GRADER_URL:-}" ]]; }
+grader() { "$PY" "$FRAMEWORK/grader_client.py" "$@"; }
+
+# Ship probes to the grader every 2 s while the incident runs (it only trusts
+# probes that arrive live). Stopped by `make submit` / `make down`.
+grader_agent_start() {
+  grader_enabled || return 0
+  (
+    trap 'exit 0' TERM
+    while [[ -f "$STATE/broken" ]]; do
+      evidence_sync 2>/dev/null || true
+      grader push "$STATE" || true
+      sleep 2
+    done
+  ) >>"$STATE/grader_agent.log" 2>&1 &
+  echo $! > "$STATE/grader_agent.pid"
+}
+
+grader_agent_stop() {
+  [[ -f "$STATE/grader_agent.pid" ]] || return 0
+  kill "$(cat "$STATE/grader_agent.pid")" 2>/dev/null || true
+  rm -f "$STATE/grader_agent.pid"
+}
+
+# Every scenario's break.sh ends with this: mark the incident start locally and,
+# for graded runs, on the server (whose clock is the one that counts).
+incident_started() {
+  touch "$STATE/broken"
+  timeline "break"
+  if grader_enabled; then
+    grader event "$STATE" break "{\"host\": \"$VANTAGE_HOST\"}"
+    grader_agent_start
+    log "graded attempt $("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["attempt_id"])' "$STATE/attempt.json"): probes stream to $GRADER_URL"
+  fi
 }
 seed_nibble() { echo $(( 16#${1:$2:1} )); }   # seed index -> 0..15
 
@@ -165,6 +208,7 @@ scenario_down() {
     "${COMPOSE[@]}" down -t 2 --remove-orphans
   fi
   rm -f "$STATE/broken"
+  grader_agent_stop
 }
 
 scenario_status() {

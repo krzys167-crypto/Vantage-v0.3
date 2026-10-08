@@ -48,3 +48,15 @@ Plan rozwoju DSL jest w [docs/dsl-roadmap.md](docs/dsl-roadmap.md).
 CI (`.github/workflows/scenarios.yml`) uruchamia self-test każdego scenariusza w trybie docker dla wszystkich kombinacji usterek i w trybie k3d dla wybranych.
 
 Każdy scenariusz wspiera `MODE=docker` (domyślnie) i `MODE=k3d`.
+
+## Ocena: practice vs graded
+
+- `make score` daje wynik **practice**, liczony lokalnie z plików, które uczestnik może zmienić.
+- `GRADER_URL=... make submit` daje wynik **graded**:
+  - seed wydaje serwer dla każdej próby;
+  - czas `break` stempluje serwer;
+  - próbki docierają do serwera na żywo i są sprawdzane flagą;
+  - wynik liczy serwer z własnej konfiguracji i podpisuje kluczem ed25519.
+
+Weryfikacja wyniku: `python grader/verify.py server_report.json grader.pem`.
+Model zagrożeń, w tym to, czego grader jeszcze nie chroni, jest w [docs/grader.md](docs/grader.md).

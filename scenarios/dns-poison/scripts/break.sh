@@ -30,7 +30,6 @@ dns_reload >/dev/null
 config_apply
 api_flush >/dev/null   # pretend the old answers expired long ago
 snapshot "$STATE/baseline.tsv"
-touch "$STATE/broken"
-timeline "break"
+incident_started
 log "incident started: checkout fails. Clock is running."
 log "evidence: make call | make dig N=<name> | make resolve N=<name> | make zone | make logs S=api|dns"

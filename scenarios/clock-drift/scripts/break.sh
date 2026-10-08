@@ -20,7 +20,6 @@ printf '%s' "$SKEW_S" > "$CLOCK/$SKEW_SVC"
 
 svc_apply auth api
 snapshot "$STATE/baseline.tsv"
-touch "$STATE/broken"
-timeline "break"
+incident_started
 log "incident started: every call to api is rejected. Clock is running."
 log "evidence: make status | make call | make time | make logs S=api | scripts/jwt.py decode <token>"

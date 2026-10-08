@@ -27,5 +27,6 @@ case "$status" in
   wait) log "hint $((taken+1)) unlocks in ${msg}s" ;;
   give) cost="${msg%% *}"; text="${msg#* }"
         timeline "hint $((taken+1))"
+        grader_enabled && grader event "$STATE" hint "{\"n\": $((taken+1))}"
         log "hint $((taken+1)) (-$cost pts): $text" ;;
 esac

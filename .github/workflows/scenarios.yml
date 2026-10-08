@@ -13,6 +13,39 @@ jobs:
       # schema + semantic checks, and generated/ must match scenario.yaml
       - run: python dsl/validate.py --check
 
+  grader-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m unittest grader/test_grader.py -v
+
+  # graded run end to end: seed from the grader, live probe stream, server score
+  graded:
+    runs-on: ubuntu-latest
+    needs: grader-unit
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [certificate-apocalypse, clock-drift, dns-poison]
+    steps:
+      - uses: actions/checkout@v4
+      - name: start grader
+        run: |
+          GRADER_STABLE_WINDOW=20 nohup python grader/server.py --port 8700 --data "$RUNNER_TEMP/grader" > "$RUNNER_TEMP/grader.log" 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8700/v1/pubkey >/dev/null && break; sleep 0.5; done
+          curl -sf http://127.0.0.1:8700/v1/pubkey > "$RUNNER_TEMP/grader.pem"
+      - name: graded self-test
+        working-directory: scenarios/${{ matrix.scenario }}
+        env:
+          GRADER_URL: http://127.0.0.1:8700
+          USER_ID: ci@vantage
+        run: |
+          make ci | tee "$RUNNER_TEMP/ci.log"
+          grep -q "ATTESTED" "$RUNNER_TEMP/ci.log" && ! grep -q "NOT ATTESTED" "$RUNNER_TEMP/ci.log"
+          python ../../grader/verify.py .state/evidence/server_report.json "$RUNNER_TEMP/grader.pem"
+      - if: failure()
+        run: cat "$RUNNER_TEMP/grader.log" | tail -50
+
   docker:
     runs-on: ubuntu-latest
     strategy:
