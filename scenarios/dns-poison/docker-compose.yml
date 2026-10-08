@@ -17,14 +17,14 @@ services:
     command: ["python", "-u", "dns_server.py"]
     volumes:
       - ./app:/app:ro
-      - ./.state/zone:/zone:ro
+      - ${STATE_DIR}/zone:/zone:ro
     networks: {net: {ipv4_address: "${DNS_IP}"}}
 
   payments:
     <<: *py
     command: ["python", "-u", "server.py"]
     environment: {ROLE: payments, PORT: "8090"}
-    volumes: [./app:/app:ro, ./.state/secret:/secret:ro]
+    volumes: [./app:/app:ro, "${STATE_DIR}/secret:/secret:ro"]
     networks: {net: {ipv4_address: "${PAY_IP}"}}
 
   # decommissioned instance that still answers, signing with its old key
@@ -32,14 +32,14 @@ services:
     <<: *py
     command: ["python", "-u", "server.py"]
     environment: {ROLE: legacy, PORT: "8090", INSTANCE: "${LEGACY_INSTANCE}"}
-    volumes: [./app:/app:ro, ./.state/secret:/secret:ro]
+    volumes: [./app:/app:ro, "${STATE_DIR}/secret:/secret:ro"]
     networks: {net: {ipv4_address: "${LEGACY_IP}"}}
 
   fx:
     <<: *py
     command: ["python", "-u", "server.py"]
     environment: {ROLE: fx, PORT: "8090"}
-    volumes: [./app:/app:ro, ./.state/secret:/secret:ro]
+    volumes: [./app:/app:ro, "${STATE_DIR}/secret:/secret:ro"]
     networks: {net: {ipv4_address: "${FX_IP}"}}
 
   api:
@@ -47,7 +47,7 @@ services:
     depends_on: [dns, payments, fx]
     command: ["python", "-u", "server.py"]
     environment: {ROLE: api, PORT: "8080", RESOLVER: "${DNS_IP}", VANTAGE_HOST: "${VANTAGE_HOST}"}
-    volumes: [./app:/app:ro, ./.state/secret:/secret:ro, ./.state/config:/config:ro]
+    volumes: [./app:/app:ro, "${STATE_DIR}/secret:/secret:ro", "${STATE_DIR}/config:/config:ro"]
     ports: ["127.0.0.1:${EDGE_PORT}:8080"]
     networks: {net: {ipv4_address: "${NET}.50"}}
 
@@ -56,5 +56,5 @@ services:
     depends_on: [api]
     command: ["python", "-u", "/probe/probe.py"]
     environment: {OUT: /evidence/probes.jsonl}
-    volumes: [./app:/app:ro, ./prober:/probe:ro, ./.state/evidence:/evidence]
+    volumes: [./app:/app:ro, ./prober:/probe:ro, "${STATE_DIR}/evidence:/evidence"]
     networks: {net: {ipv4_address: "${NET}.60"}}

@@ -12,7 +12,7 @@ services:
       DECOY_HOST: ${DECOY_HOST}
     volumes:
       - ./backend/server.py:/app/server.py:ro
-      - ./.state/pki/backend:/pki/backend:ro
+      - ${STATE_DIR}/pki/backend:/pki/backend:ro
     networks:
       mesh:
         aliases: [backend.mesh.internal]
@@ -26,7 +26,7 @@ services:
       BACKEND_ADDR: backend.mesh.internal:9443
     volumes:
       - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ./.state/pki/gateway:/pki/gateway
+      - ${STATE_DIR}/pki/gateway:/pki/gateway
     ports:
       - "127.0.0.1:${EDGE_PORT}:8443"
     networks:
@@ -45,9 +45,9 @@ services:
       OUT: /evidence/probes.jsonl
     volumes:
       - ./prober/probe.py:/app/probe.py:ro
-      - ./.state/pki/clients:/pki/clients:ro
-      - ./.state/evidence:/evidence
+      - ${STATE_DIR}/pki/clients:/pki/clients:ro
+      - ${STATE_DIR}/evidence:/evidence
       # read-only view of the backend PKI, used only by hidden assertion H5
-      - ./.state/pki/backend:/pki/backend:ro
+      - ${STATE_DIR}/pki/backend:/pki/backend:ro
     networks: [mesh]
     restart: unless-stopped

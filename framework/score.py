@@ -49,7 +49,7 @@ def sha256(path):
 
 
 def main(scn):
-    state = os.path.join(scn, ".state")
+    state = os.environ.get("VANTAGE_STATE") or os.path.join(scn, ".state")
     evid = os.path.join(state, "evidence")
     cfg = json.load(open(os.path.join(scn, "generated", "scoring.json")))
     env = load_env(state)
@@ -69,7 +69,7 @@ def main(scn):
 
     files = {}
     for rel in cfg.get("evidence_files", []):
-        d = os.path.join(scn, rel)
+        d = os.path.join(state, rel[len(".state/"):]) if rel.startswith(".state/") else os.path.join(scn, rel)
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
             files[f"{rel}/{f}"] = sha256(os.path.join(d, f))
     report = dict({"scenario": env["SCENARIO"], "user": env["USER_ID"], "seed_prefix": env["SEED"][:12],

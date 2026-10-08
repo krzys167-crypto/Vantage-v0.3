@@ -14,9 +14,12 @@ set -euo pipefail
 : "${SCN_DIR:?}" "${PROJECT:?}" "${EDGE_SVC:?}" "${EDGE_TARGET_PORT:?}"
 PROBER_SVC="${PROBER_SVC:-prober}"
 FRAMEWORK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE="$SCN_DIR/.state"
+# Hosted range: the controller keeps state outside the scenario (and away from
+# the trainee) and gives each session its own namespace.
+STATE="${VANTAGE_STATE:-$SCN_DIR/.state}"
 EVID="$STATE/evidence"
 PY="$(command -v python3 || command -v python || true)"
+PROJECT="${VANTAGE_NS:-$PROJECT}"
 NS="$PROJECT"
 COMPOSE=(docker compose -p "$PROJECT" --env-file "$STATE/scenario.env" -f "$SCN_DIR/docker-compose.yml")
 
@@ -106,6 +109,7 @@ state_needs_init() {
 write_common_env() { # scenario_id seed
   cat > "$STATE/scenario.env" <<EOF
 SCENARIO=$1
+STATE_DIR=$STATE
 MODE=${MODE:-docker}
 KUBE_CONTEXT=${KUBE_CONTEXT:-k3d-vantage}
 USER_ID=${USER_ID:-$(git config user.email 2>/dev/null || echo anonymous)}
@@ -187,7 +191,9 @@ scenario_up() {
   require_state
   if is_k8s; then
     kubectl --context "$KUBE_CONTEXT" get ns "$NS" >/dev/null 2>&1 || kubectl --context "$KUBE_CONTEXT" create ns "$NS" >/dev/null
-    k8s_apply create configmap scenario --from-env-file="$STATE/scenario.env"
+    # SEED never enters the cluster: flag secrets and fault variants derive from it
+    grep -vE '^(SEED|STATE_DIR)=' "$STATE/scenario.env" > "$STATE/scenario.cluster.env"
+    k8s_apply create configmap scenario --from-env-file="$STATE/scenario.cluster.env"
     bash "$SCN_DIR/scripts/k8s_objects.sh"
     "${KUBE[@]}" apply -f "$SCN_DIR/k8s/manifests.yaml" >/dev/null
     local s; for s in "${SERVICES[@]}"; do "${KUBE[@]}" rollout status "deploy/$s" --timeout=180s >/dev/null; done

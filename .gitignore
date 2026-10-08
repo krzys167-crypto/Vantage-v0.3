@@ -2,3 +2,4 @@
 .state/
 __pycache__/
 grader/.data/
+range/.sessions/

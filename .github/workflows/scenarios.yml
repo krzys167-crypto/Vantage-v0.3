@@ -101,3 +101,40 @@ jobs:
         run: make ci
       - if: failure()
         run: kubectl get all,events -A -o wide | grep -E "vantage|NAME" || true
+
+  # hosted range: platform runs the scenario, trainee only gets a scoped kubeconfig
+  hosted-range:
+    runs-on: ubuntu-latest
+    needs: grader-unit
+    steps:
+      - uses: actions/checkout@v4
+      - name: k3d cluster + grader
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.7.4 bash
+          k3d cluster create vantage --agents 1 --no-lb --wait
+          GRADER_STABLE_WINDOW=20 nohup python grader/server.py --port 8700 --data "$RUNNER_TEMP/grader" > "$RUNNER_TEMP/grader.log" 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8700/v1/pubkey >/dev/null && break; sleep 0.5; done
+          curl -sf http://127.0.0.1:8700/v1/pubkey > "$RUNNER_TEMP/grader.pem"
+      - name: start session (platform side)
+        env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage, STABLE_WINDOW: "20"}
+        run: |
+          bash range/range.sh start certificate-apocalypse ci@vantage | tee "$RUNNER_TEMP/start.log"
+          echo "SESSION=$(tail -1 "$RUNNER_TEMP/start.log")" >> "$GITHUB_ENV"
+      - name: trainee (scoped kubeconfig only)
+        run: |
+          sleep 10
+          bash range/tests/trainee_cert.sh "range/.sessions/$SESSION/trainee.kubeconfig"
+          sleep 28
+      - name: grade (platform side)
+        env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage}
+        run: |
+          bash range/range.sh grade "$SESSION" | tee "$RUNNER_TEMP/grade.log"
+          grep -q "ATTESTED" "$RUNNER_TEMP/grade.log" && ! grep -q "NOT ATTESTED" "$RUNNER_TEMP/grade.log"
+          grep -q "public: PASS" "$RUNNER_TEMP/grade.log"
+          python grader/verify.py "range/.sessions/$SESSION/state/evidence/server_report.json" "$RUNNER_TEMP/grader.pem"
+      - if: always()
+        env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage}
+        run: |
+          kubectl get all,events -n "vr-$SESSION" -o wide || true
+          tail -30 "$RUNNER_TEMP/grader.log" || true
+          bash range/range.sh stop "$SESSION" || true
