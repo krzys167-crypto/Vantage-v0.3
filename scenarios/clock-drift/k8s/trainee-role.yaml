@@ -1,0 +1,41 @@
+# Hosted range: what the trainee's ServiceAccount may do in the session namespace.
+# Enough to diagnose and repair clocks and the key rotation; nothing that holds
+# the flag secret, drives the prober or changes the scenario. Applied by
+# range/range.sh with -n <ns>.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: trainee}
+rules:
+  # read the workload topology. No Secret list/watch (it would leak every
+  # Secret) and no ConfigMaps beyond the ones that are part of the job.
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, events]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [pods/portforward]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  # repair: the host clocks and the service config (leeway lives here: changing
+  # it is allowed, and judged by the hidden assertions)
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [clock, svc-config]
+    verbs: [get, update, patch]
+  # the issuer keystore is read-only, the verifier keyring is the thing to fix
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [auth-keys]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [api-keyring]
+    verbs: [get, update, patch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [auth, api]
+    verbs: [patch]

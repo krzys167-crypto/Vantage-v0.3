@@ -180,8 +180,25 @@ edge_open() { # [extra trap commands]
 # Probe results -> $EVID/probes.jsonl (on k3d they live in the prober's stdout).
 evidence_sync() {
   is_k8s || return 0
-  "${KUBE[@]}" logs "deploy/$PROBER_SVC" --tail=-1 2>/dev/null | grep '^{' > "$EVID/probes.jsonl.tmp" || true
-  mv "$EVID/probes.jsonl.tmp" "$EVID/probes.jsonl"
+  # the graded agent syncs in the background too: a private temp file per call,
+  # so concurrent syncs never move each other's file away
+  local tmp; tmp="$(mktemp "$EVID/probes.jsonl.XXXXXX")"
+  "${KUBE[@]}" logs "deploy/$PROBER_SVC" --tail=-1 2>/dev/null | grep '^{' > "$tmp" || true
+  chmod 644 "$tmp"; mv "$tmp" "$EVID/probes.jsonl"
+}
+
+# k8s/manifests.yaml may use {{KEY}} placeholders for scenario.env values (for
+# example fixed ClusterIPs, which must differ between hosted sessions).
+render_manifests() {
+  "$PY" - "$SCN_DIR/k8s/manifests.yaml" "$STATE/scenario.cluster.env" <<'PY'
+import re, sys
+env = dict(l.rstrip("\n").split("=", 1) for l in open(sys.argv[2]) if "=" in l)
+def sub(m):
+    if m.group(1) not in env:
+        sys.exit(f"manifests.yaml: {{{{{m.group(1)}}}}} is not in scenario.env")
+    return env[m.group(1)]
+sys.stdout.write(re.sub(r"\{\{([A-Z_][A-Z0-9_]*)\}\}", sub, open(sys.argv[1]).read()))
+PY
 }
 
 # Generic `make up` / `make down` for scenarios that follow the layout:
@@ -195,7 +212,7 @@ scenario_up() {
     grep -vE '^(SEED|STATE_DIR)=' "$STATE/scenario.env" > "$STATE/scenario.cluster.env"
     k8s_apply create configmap scenario --from-env-file="$STATE/scenario.cluster.env"
     bash "$SCN_DIR/scripts/k8s_objects.sh"
-    "${KUBE[@]}" apply -f "$SCN_DIR/k8s/manifests.yaml" >/dev/null
+    render_manifests | "${KUBE[@]}" apply -f - >/dev/null
     local s; for s in "${SERVICES[@]}"; do "${KUBE[@]}" rollout status "deploy/$s" --timeout=180s >/dev/null; done
     "${KUBE[@]}" get pods -o wide
   else

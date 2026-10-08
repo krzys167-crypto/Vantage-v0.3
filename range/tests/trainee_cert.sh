@@ -5,17 +5,8 @@
 #   2. the incident can be fixed with exactly those rights
 #
 #   range/tests/trainee_cert.sh <trainee.kubeconfig>
-set -euo pipefail
-export KUBECONFIG="${1:?trainee kubeconfig}"
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$(dirname "$0")/common.sh"
 G="$ROOT/scenarios/certificate-apocalypse/scripts/gen_good_cert.sh"
-fail=0
-check() { # expected(yes|no) verb resource...
-  local want="$1"; shift
-  local got; got="$(kubectl auth can-i "$@" 2>/dev/null || true)"
-  if [[ "$got" == "$want" ]]; then printf '  ok    can-i %-40s %s\n' "$*" "$got"
-  else printf '  FAIL  can-i %-40s %s (want %s)\n' "$*" "$got" "$want"; fail=1; fi
-}
 
 echo "RBAC boundary:"
 check no  get secret/backend-pki
@@ -31,9 +22,8 @@ check yes patch secret/gateway-pki
 check yes get secret/issuer-ca
 check yes patch deployment/gateway
 check yes get pods/log
-# the real thing, not only the authorizer's opinion
-if kubectl get secret backend-pki >/dev/null 2>&1; then echo "  FAIL  read backend-pki"; fail=1; fi
-(( fail == 0 )) || { echo "RBAC boundary broken"; exit 1; }
+cannot_read secret/backend-pki
+boundary_holds
 
 echo "diagnose + fix with trainee rights only:"
 w="$(mktemp -d)"; trap 'rm -rf "$w"' EXIT
@@ -67,6 +57,5 @@ if ! openssl x509 -in "$w/gw/client.pem" -noout -checkend $((30*86400)) >/dev/nu
 fi
 rm -f "$w/gw/"*.csr "$w/ca/"*.srl
 kubectl create secret generic gateway-pki --from-file="$w/gw" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl rollout restart deploy/gateway >/dev/null
-kubectl rollout status deploy/gateway --timeout=180s >/dev/null
+roll gateway
 echo "  applied: gateway-pki updated, gateway rolled"

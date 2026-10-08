@@ -12,7 +12,8 @@ mkdir -p "$STATE/zone" "$CONF" "$STATE/secret"
 
 seed="$(derive_seed dns-poison)"
 n() { seed_nibble "$seed" "$1"; }
-if [[ "${MODE:-docker}" == k3d ]]; then net=10.43.240; else net=172.29.240; fi
+# k3d: fixed ClusterIPs; the hosted range hands each session its own /24
+if [[ "${MODE:-docker}" == k3d ]]; then net="${VANTAGE_SVC_NET:-10.43.240}"; else net=172.29.240; fi
 legacy_names=("payments-v1" "payments-dc2" "payments-old-cluster" "payments-pre-migration")
 
 write_common_env dns-poison "$seed"

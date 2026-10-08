@@ -106,6 +106,13 @@ jobs:
   hosted-range:
     runs-on: ubuntu-latest
     needs: grader-unit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {scenario: certificate-apocalypse, trainee: trainee_cert.sh}
+          - {scenario: clock-drift, trainee: trainee_clock.sh}
+          - {scenario: dns-poison, trainee: trainee_dns.sh}
     steps:
       - uses: actions/checkout@v4
       - name: k3d cluster + grader
@@ -118,12 +125,12 @@ jobs:
       - name: start session (platform side)
         env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage, STABLE_WINDOW: "20"}
         run: |
-          bash range/range.sh start certificate-apocalypse ci@vantage | tee "$RUNNER_TEMP/start.log"
+          bash range/range.sh start ${{ matrix.scenario }} ci@vantage | tee "$RUNNER_TEMP/start.log"
           echo "SESSION=$(tail -1 "$RUNNER_TEMP/start.log")" >> "$GITHUB_ENV"
       - name: trainee (scoped kubeconfig only)
         run: |
           sleep 10
-          bash range/tests/trainee_cert.sh "range/.sessions/$SESSION/trainee.kubeconfig"
+          bash range/tests/${{ matrix.trainee }} "range/.sessions/$SESSION/trainee.kubeconfig"
           sleep 28
       - name: grade (platform side)
         env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage}
