@@ -36,25 +36,36 @@ kubectl get secret issuer-ca -o yaml        # CA do ponownego wystawienia certyf
 # ... napraw, wgraj Secret, kubectl rollout restart deploy/gateway
 ```
 
-## Granica uprawnień (Certificate Apocalypse)
+## Granice uprawnień
 
-`scenarios/certificate-apocalypse/k8s/trainee-role.yaml`:
+Każdy scenariusz ma własną rolę w `k8s/trainee-role.yaml`. Wszystkie trzy role mają wspólny trzon:
 
-| Uczestnik może | Uczestnik nie może |
-|---|---|
-| czytać pody, serwisy, endpointy, eventy i logi | czytać ani listować Secretów poza `gateway-pki`, `issuer-ca`, `clients-ca` |
-| czytać i podmieniać `gateway-pki` | czytać `backend-pki` (sekret flagi, klucze backendu) |
-| czytać `issuer-ca` (CA, które są częścią zadania) | czytać ConfigMap (parametry scenariusza) |
-| robić rolling restart `deploy/gateway` | zmieniać `prober` ani `backend`, usuwać podów, tworzyć zasobów |
-| `port-forward` | `exec` do podów |
+- uczestnik może czytać pody, serwisy, endpointy, eventy, deploymenty i logi oraz robić `port-forward`;
+- uczestnik nie może listować Secretów, czytać ConfigMap `scenario` (parametry scenariusza), robić `exec`, usuwać podów, tworzyć zasobów ani zmieniać probera.
 
-Dodatkowo `SEED` w ogóle nie trafia do klastra, bo nie ma go w ConfigMapie `scenario`. Z seeda wynika sekret flagi i wariant usterek, a pody go nie potrzebują.
+Różnią się tym, co jest częścią zadania:
 
-Granicę sprawdza w CI `range/tests/trainee_cert.sh`, który gra rolę uczestnika:
+| Scenariusz | Uczestnik może dodatkowo | Poza zasięgiem (sekret flagi i to, co go chroni) |
+|---|---|---|
+| Certificate Apocalypse | `gateway-pki` (odczyt i zapis), `issuer-ca` i `clients-ca` (odczyt), restart `deploy/gateway` | `backend-pki`, backend |
+| Clock Drift | ConfigMapy `clock` i `svc-config` (odczyt i zapis), `auth-keys` (tylko odczyt), `api-keyring` (odczyt i zapis), restart `deploy/auth` i `deploy/api` | `api-flag`, `app-code`, zapis do `auth-keys` |
+| Split-Brain DNS | ConfigMapy `zone` i `svc-config` (odczyt i zapis), restart `deploy/dns` i `deploy/api` | Secret `keys` (jedyny Secret), `payments`, `legacy`, `fx` |
 
-1. `kubectl auth can-i` dla 13 operacji oraz realna próba odczytu `backend-pki`.
-2. Pełna naprawa wyłącznie tymi uprawnieniami: certyfikat odczytany z sekretu, ponownie wystawiony lokalnie z `issuer-ca`, wgrany z powrotem, potem rolling restart.
+`svc-config` jest w zasięgu celowo: podniesienie `leeway` albo wyłączenie weryfikacji podpisów to droga na skróty, którą wolno wybrać i za którą karzą ukryte asercje.
+
+`SEED` w ogóle nie trafia do klastra, bo nie ma go w ConfigMapie `scenario`. Z seeda wynika sekret flagi i wariant usterek, a pody go nie potrzebują.
+
+Granice sprawdzają w CI `range/tests/trainee_{cert,clock,dns}.sh` (wspólne funkcje w `range/tests/common.sh`). Każdy z nich gra rolę uczestnika:
+
+1. `kubectl auth can-i` dla operacji z tabeli oraz realna próba odczytu sekretu flagi.
+2. Pełna naprawa wyłącznie tymi uprawnieniami, na podstawie diagnozy żywego stanu, a nie listy usterek.
 3. Kontroler ocenia próbę uprawnieniami platformy. Oczekiwany wynik: wszystkie asercje publiczne, ATTESTED i podpis zweryfikowany przez `verify.py`.
+
+## Wiele sesji na jednym klastrze
+
+Każda sesja ma własny namespace `vr-<id>` i własny `EDGE_PORT`. Split-Brain DNS używa stałych ClusterIP (rekordy A muszą być stabilne), a te są globalne w klastrze. Dlatego kontroler przydziela każdej sesji wolną podsieć /24 z zakresu `10.43.200–249` (`VANTAGE_SVC_NET` w `session.env`). `k8s/manifests.yaml` dostaje ją przez placeholder `{{NET}}`, który framework podstawia z `scenario.env` (`render_manifests`).
+
+Przydział nie jest atomowy: dwa równoczesne `start` mogą wylosować tę samą podsieć, a wtedy drugi `apply` się nie powiedzie. Kontroler produkcyjny potrzebuje tu blokady albo rejestru podsieci.
 
 ## Co to zamyka, a co nadal zostaje
 
@@ -67,6 +78,6 @@ Granicę sprawdza w CI `range/tests/trainee_cert.sh`, który gra rolę uczestnik
 
 Ograniczenia obecnej wersji:
 
-- Na razie obsługiwany jest jeden scenariusz. Kolejne wymagają własnej `k8s/trainee-role.yaml`, a czasem `scripts/range_trainee_objects.sh`.
+- Nowy scenariusz wymaga własnej `k8s/trainee-role.yaml`, testu uczestnika w `range/tests/` i czasem `scripts/range_trainee_objects.sh`.
 - Wszystkie sesje działają na jednym klastrze. Izolację zapewnia namespace i NetworkPolicy; do produkcji potrzebny jest klaster lub microVM na sesję.
 - Token w kubeconfig jest ważny 4 h (`RANGE_TTL`) i nie ma osobnego odwołania poza usunięciem namespace (`range.sh stop`).

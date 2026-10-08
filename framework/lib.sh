@@ -184,6 +184,20 @@ evidence_sync() {
   mv "$EVID/probes.jsonl.tmp" "$EVID/probes.jsonl"
 }
 
+# k8s/manifests.yaml may use {{KEY}} placeholders for scenario.env values (for
+# example fixed ClusterIPs, which must differ between hosted sessions).
+render_manifests() {
+  "$PY" - "$SCN_DIR/k8s/manifests.yaml" "$STATE/scenario.cluster.env" <<'PY'
+import re, sys
+env = dict(l.rstrip("\n").split("=", 1) for l in open(sys.argv[2]) if "=" in l)
+def sub(m):
+    if m.group(1) not in env:
+        sys.exit(f"manifests.yaml: {{{{{m.group(1)}}}}} is not in scenario.env")
+    return env[m.group(1)]
+sys.stdout.write(re.sub(r"\{\{([A-Z_][A-Z0-9_]*)\}\}", sub, open(sys.argv[1]).read()))
+PY
+}
+
 # Generic `make up` / `make down` for scenarios that follow the layout:
 #   docker-compose.yml, k8s/manifests.yaml, scripts/init.sh, scripts/k8s_objects.sh
 scenario_up() {
@@ -195,7 +209,7 @@ scenario_up() {
     grep -vE '^(SEED|STATE_DIR)=' "$STATE/scenario.env" > "$STATE/scenario.cluster.env"
     k8s_apply create configmap scenario --from-env-file="$STATE/scenario.cluster.env"
     bash "$SCN_DIR/scripts/k8s_objects.sh"
-    "${KUBE[@]}" apply -f "$SCN_DIR/k8s/manifests.yaml" >/dev/null
+    render_manifests | "${KUBE[@]}" apply -f - >/dev/null
     local s; for s in "${SERVICES[@]}"; do "${KUBE[@]}" rollout status "deploy/$s" --timeout=180s >/dev/null; done
     "${KUBE[@]}" get pods -o wide
   else

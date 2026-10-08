@@ -66,4 +66,4 @@ Model zagrożeń, w tym to, czego grader jeszcze nie chroni, jest w [docs/grader
 `range/range.sh start <scenario>` stawia scenariusz na klastrze platformy, w osobnym namespace.
 Uczestnik dostaje tylko kubeconfig z rolą ograniczoną do naprawy, bez dostępu do probera, sekretów backendu i asercji.
 Asercje i ocenę wykonuje platforma.
-Na razie: Certificate Apocalypse. Szczegóły i granica uprawnień: [docs/hosted-range.md](docs/hosted-range.md).
+Działa dla wszystkich trzech scenariuszy. Szczegóły i granice uprawnień: [docs/hosted-range.md](docs/hosted-range.md).

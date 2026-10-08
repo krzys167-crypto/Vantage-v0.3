@@ -24,8 +24,18 @@ session_env() { # id -> exports for the scenario scripts
   [[ -f "$dir/session.env" ]] || die "unknown session $id"
   # shellcheck disable=SC1091
   source "$dir/session.env"
-  export VANTAGE_STATE="$dir/state" VANTAGE_NS="vr-$id" EDGE_PORT
+  export VANTAGE_STATE="$dir/state" VANTAGE_NS="vr-$id" EDGE_PORT VANTAGE_SVC_NET
   SCN="$ROOT/scenarios/$SCENARIO"
+}
+
+free_svc_net() { # a /24 in k3s' service CIDR that no Service uses yet (fixed ClusterIPs)
+  local used n
+  used="$(kubectl --context "$KUBE_CONTEXT" get svc -A -o jsonpath='{range .items[*]}{.spec.clusterIP}{"\n"}{end}' \
+          | awk -F. '{print $3}' | sort -u)"
+  for n in $(seq 200 249 | shuf); do
+    grep -qx "$n" <<<"$used" || { echo "10.43.$n"; return; }
+  done
+  die "no free /24 left in 10.43.200-249 for fixed ClusterIPs"
 }
 
 trainee_kubeconfig() { # ns out
@@ -56,7 +66,9 @@ case "$cmd" in
     [[ -f "$SCN/k8s/trainee-role.yaml" ]] || die "$scenario has no k8s/trainee-role.yaml: not available as a hosted range yet"
     id="$(openssl rand -hex 4)"; dir="$SESSIONS/$id"
     mkdir -p "$dir/state" && chmod 700 "$dir"
-    printf 'SCENARIO=%s\nUSER_ID=%s\nEDGE_PORT=%s\n' "$scenario" "$user" "$(( 20000 + 16#${id:0:4} % 20000 ))" > "$dir/session.env"
+    net="$(free_svc_net)"
+    printf 'SCENARIO=%s\nUSER_ID=%s\nEDGE_PORT=%s\nVANTAGE_SVC_NET=%s\n' "$scenario" "$user" \
+      "$(( 20000 + 16#${id:0:4} % 20000 ))" "$net" > "$dir/session.env"
     session_env "$id"
     export USER_ID="$user"
     log "session $id: $scenario for $user in namespace $VANTAGE_NS"

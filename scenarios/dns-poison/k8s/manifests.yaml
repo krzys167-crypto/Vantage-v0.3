@@ -1,13 +1,14 @@
 # Split-Brain DNS on k3d. Applied by framework scenario_up into namespace vantage-dns.
 # ConfigMaps `scenario`, `app-code`, `zone`, `svc-config` and Secret `keys` are
 # created from .state/ by scripts/k8s_objects.sh. Services the zone points at
-# use fixed ClusterIPs (10.43.240.0/24, inside k3s' default service CIDR) so that
-# A records are stable, as they would be for real hosts.
+# use fixed ClusterIPs (NET.0/24 inside k3s' default service CIDR: 10.43.240,
+# or a per-session /24 picked by the hosted range) so that A records are
+# stable, as they would be for real hosts.
 apiVersion: v1
 kind: Service
 metadata: {name: dns}
 spec:
-  clusterIP: 10.43.240.10
+  clusterIP: {{NET}}.10
   selector: {app: dns}
   ports:
     - {name: dns, port: 53, protocol: UDP, targetPort: 53}
@@ -45,17 +46,17 @@ spec:
 apiVersion: v1
 kind: Service
 metadata: {name: payments}
-spec: {clusterIP: 10.43.240.20, selector: {app: payments}, ports: [{port: 8090}]}
+spec: {clusterIP: {{NET}}.20, selector: {app: payments}, ports: [{port: 8090}]}
 ---
 apiVersion: v1
 kind: Service
 metadata: {name: legacy}
-spec: {clusterIP: 10.43.240.21, selector: {app: legacy}, ports: [{port: 8090}]}
+spec: {clusterIP: {{NET}}.21, selector: {app: legacy}, ports: [{port: 8090}]}
 ---
 apiVersion: v1
 kind: Service
 metadata: {name: fx}
-spec: {clusterIP: 10.43.240.30, selector: {app: fx}, ports: [{port: 8090}]}
+spec: {clusterIP: {{NET}}.30, selector: {app: fx}, ports: [{port: 8090}]}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -170,7 +171,7 @@ spec:
           env:
             - {name: ROLE, value: api}
             - {name: PORT, value: "8080"}
-            - {name: RESOLVER, value: "10.43.240.10"}
+            - {name: RESOLVER, value: "{{NET}}.10"}
             - {name: VANTAGE_HOST, valueFrom: {configMapKeyRef: {name: scenario, key: VANTAGE_HOST}}}
           ports: [{containerPort: 8080}]
           readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
