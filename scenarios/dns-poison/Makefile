@@ -5,7 +5,7 @@ PY ?= $(shell command -v python3 || command -v python)
 export MODE ?= docker
 export KUBE_CONTEXT ?= k3d-vantage
 
-.PHONY: help cluster up break status logs call dig resolve zone reload flush apply hint assert score down clean fix ci
+.PHONY: help cluster up break status logs call dig resolve zone reload flush apply hint assert score submit down clean fix ci
 
 help: ## list targets
 	@grep -hE '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
@@ -54,6 +54,9 @@ assert: ## run public + hidden assertions
 
 score: assert ## assertions + score + signed report
 	@$(PY) ../../framework/score.py .
+
+submit: assert ## graded run (GRADER_URL set): server scores and signs
+	@bash ../../framework/submit.sh .
 
 fix: ## SPOILER: reference solution
 	@bash solution/fix.sh

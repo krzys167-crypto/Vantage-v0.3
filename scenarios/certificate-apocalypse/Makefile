@@ -5,7 +5,7 @@ PY ?= $(shell command -v python3 || command -v python)
 export MODE ?= docker
 export KUBE_CONTEXT ?= k3d-vantage
 
-.PHONY: help cluster up break status logs probe apply hint assert score down clean load fix ci
+.PHONY: help cluster up break status logs probe apply hint assert score submit down clean load fix ci
 
 help: ## list targets
 	@grep -hE '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
@@ -39,6 +39,9 @@ assert: ## run public + hidden assertions
 
 score: assert ## assertions + score + signed report
 	@$(PY) ../../framework/score.py .
+
+submit: assert ## graded run (GRADER_URL set): server scores and signs
+	@bash ../../framework/submit.sh .
 
 load: ## optional k6 load, docker mode (needs grafana/k6 image)
 	@source .state/scenario.env && docker run --rm -i --network vantage-ca_mesh \

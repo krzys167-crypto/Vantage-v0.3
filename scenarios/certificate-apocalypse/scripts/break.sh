@@ -26,7 +26,6 @@ esac
 gateway_apply >/dev/null
 # Baseline for blast radius: instance identities right after the incident starts.
 snapshot "$STATE/baseline.tsv"
-touch "$STATE/broken"
-timeline "break"
+incident_started
 log "incident started: https://$VANTAGE_HOST:$EDGE_PORT/healthz is failing. Clock is running."
 log "evidence: make status | make probe | make probe MESH=1 | make logs S=gateway"
