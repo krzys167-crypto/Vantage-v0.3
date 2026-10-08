@@ -59,7 +59,7 @@ oa="$(j off_auth)"; ob="$(j off_api)"
 p=$("$PY" -c 'import sys; print(1 if all(a not in ("",) and abs(float(a)) <= 2 for a in sys.argv[1:]) else 0)' "${oa:-x}" "${ob:-x}" 2>/dev/null || echo 0)
 record A3 public clocks_in_sync "$p" "offset auth=${oa:-?}s api=${ob:-?}s (limit 2s)"
 
-a="$(svc_exec auth cat "/keys/$kid.key" 2>/dev/null | openssl dgst -sha256 -r)"
+a="$(svc_exec auth cat "/keys/$kid.key" 2>/dev/null | openssl dgst -sha256 -r || true)"
 b="$(svc_exec api cat "/keyring/$kid.key" 2>/dev/null | openssl dgst -sha256 -r || true)"
 [[ -n "$a" && "$a" == "$b" ]] && p=1 || p=0
 record A4 public active_kid_trusted "$p" "active kid=$kid $([[ -z "$b" ]] && echo '(missing in api keyring)' || ([[ "$p" == 1 ]] || echo '(key differs)'))"

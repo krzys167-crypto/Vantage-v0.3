@@ -103,7 +103,7 @@ def identities(state, name):
 
 
 def submit(scn):
-    state = os.path.join(scn, ".state")
+    state = os.environ.get("VANTAGE_STATE") or os.path.join(scn, ".state")
     a = attempt(state)
     env = dict(l.strip().split("=", 1) for l in open(os.path.join(state, "scenario.env")) if "=" in l)
     body = {"assertions": json.load(open(os.path.join(state, "assertions.json"))), "mode": env.get("MODE", "docker"),

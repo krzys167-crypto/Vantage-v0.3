@@ -10,9 +10,9 @@ services:
     environment: {ROLE: auth, PORT: "8081", DECOY_IDP: "${DECOY_IDP}"}
     volumes:
       - ./app/server.py:/app/server.py:ro
-      - ./.state/keys/auth:/keys:ro
-      - ./.state/clock:/clock:ro
-      - ./.state/config:/config:ro
+      - ${STATE_DIR}/keys/auth:/keys:ro
+      - ${STATE_DIR}/clock:/clock:ro
+      - ${STATE_DIR}/config:/config:ro
     networks: [net]
     restart: unless-stopped
 
@@ -22,10 +22,10 @@ services:
     environment: {ROLE: api, PORT: "8080", VANTAGE_HOST: "${VANTAGE_HOST}"}
     volumes:
       - ./app/server.py:/app/server.py:ro
-      - ./.state/keys/api:/keyring:ro
-      - ./.state/clock:/clock:ro
-      - ./.state/config:/config:ro
-      - ./.state/secret:/secret:ro
+      - ${STATE_DIR}/keys/api:/keyring:ro
+      - ${STATE_DIR}/clock:/clock:ro
+      - ${STATE_DIR}/config:/config:ro
+      - ${STATE_DIR}/secret:/secret:ro
     ports:
       - "127.0.0.1:${EDGE_PORT}:8080"
     networks: [net]
@@ -39,6 +39,6 @@ services:
     environment: {OUT: /evidence/probes.jsonl}
     volumes:
       - ./prober/probe.py:/app/probe.py:ro
-      - ./.state/evidence:/evidence
+      - ${STATE_DIR}/evidence:/evidence
     networks: [net]
     restart: unless-stopped

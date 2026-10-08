@@ -15,7 +15,9 @@ evidence_sync
 echo | openssl s_client -connect "127.0.0.1:$EDGE_PORT" -servername "$VANTAGE_HOST" \
   -CAfile "$ROOT" -verify_return_error -showcerts > "$tmp/sclient.txt" 2>&1 || true
 awk '/BEGIN CERT/{n++} /BEGIN CERT/,/END CERT/{print > (dir "/chain-" n ".pem")}' dir="$tmp" "$tmp/sclient.txt"
-leaf="$tmp/chain-1.pem"; nchain=$(ls "$tmp"/chain-*.pem 2>/dev/null | wc -l | tr -d ' ')
+# (find, not ls: with pipefail an empty match must not abort the run - a gateway
+# serving nothing is a FAIL to record, not a crash)
+leaf="$tmp/chain-1.pem"; nchain=$(find "$tmp" -name 'chain-*.pem' | wc -l | tr -d ' ')
 cat "$tmp"/chain-[2-9].pem > "$tmp/untrusted.pem" 2>/dev/null || : > "$tmp/untrusted.pem"
 
 echo "public:"
@@ -36,14 +38,14 @@ if [[ -s "$leaf" && "$nchain" -ge 2 ]]; then
 else record A3 public x509_chain_ok 0 "served chain length $nchain (intermediate missing?)"; fi
 
 # A4 SAN covers the per-user hostname
-san="$(openssl x509 -in "$leaf" -noout -ext subjectAltName 2>/dev/null | tail -n +2 | tr -d ' ')"
+san="$(openssl x509 -in "$leaf" -noout -ext subjectAltName 2>/dev/null | tail -n +2 | tr -d ' ' || true)"
 [[ ",$san," == *",DNS:$VANTAGE_HOST,"* ]] && p=1 || p=0
 record A4 public san_matches_host "$p" "SAN=$san"
 
 # A5 private key on disk matches the served certificate
 if [[ -s "$leaf" ]]; then
-  a="$(openssl x509 -in "$leaf" -noout -pubkey 2>/dev/null | openssl dgst -sha256 -r)"
-  b="$(svc_exec gateway cat /pki/gateway/leaf.key 2>/dev/null | openssl pkey -pubout 2>/dev/null | openssl dgst -sha256 -r)"
+  a="$(openssl x509 -in "$leaf" -noout -pubkey 2>/dev/null | openssl dgst -sha256 -r || true)"
+  b="$(svc_exec gateway cat /pki/gateway/leaf.key 2>/dev/null | openssl pkey -pubout 2>/dev/null | openssl dgst -sha256 -r || true)"
   [[ -n "$a" && "$a" == "$b" ]] && p=1 || p=0
 else p=0; fi
 record A5 public key_matches_cert "$p" "gateway/leaf.key vs served leaf"
@@ -60,7 +62,7 @@ record A6 public mtls_trust_ok "$p" "http=$code flag=${flag:-none}"
 assert_stable_window A7 "$WINDOW"
 
 # A8 no TLS errors in gateway log during the window
-errs="$(svc_logs gateway "$WINDOW" | grep -ciE 'SSL_do_handshake|certificate verify|upstream SSL|cannot load certificate' || true)"
+errs="$(svc_logs gateway "$WINDOW" 2>/dev/null | grep -ciE 'SSL_do_handshake|certificate verify|upstream SSL|cannot load certificate' || true)"
 [[ "$errs" == 0 ]] && p=1 || p=0
 record A8 public log_absence_tls_errors "$p" "$errs TLS error lines in last ${WINDOW}s"
 
