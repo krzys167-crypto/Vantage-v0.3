@@ -180,8 +180,11 @@ edge_open() { # [extra trap commands]
 # Probe results -> $EVID/probes.jsonl (on k3d they live in the prober's stdout).
 evidence_sync() {
   is_k8s || return 0
-  "${KUBE[@]}" logs "deploy/$PROBER_SVC" --tail=-1 2>/dev/null | grep '^{' > "$EVID/probes.jsonl.tmp" || true
-  mv "$EVID/probes.jsonl.tmp" "$EVID/probes.jsonl"
+  # the graded agent syncs in the background too: a private temp file per call,
+  # so concurrent syncs never move each other's file away
+  local tmp; tmp="$(mktemp "$EVID/probes.jsonl.XXXXXX")"
+  "${KUBE[@]}" logs "deploy/$PROBER_SVC" --tail=-1 2>/dev/null | grep '^{' > "$tmp" || true
+  chmod 644 "$tmp"; mv "$tmp" "$EVID/probes.jsonl"
 }
 
 # k8s/manifests.yaml may use {{KEY}} placeholders for scenario.env values (for
