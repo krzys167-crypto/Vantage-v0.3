@@ -1,0 +1,49 @@
+{
+  "causes": [
+    {
+      "id": "backend_server_cert_expired",
+      "kind": "decoy",
+      "text": "the backend's server certificate expired"
+    },
+    {
+      "id": "dependency_tls_failure",
+      "kind": "decoy",
+      "text": "TLS to a dependency named in the logs (cache, kafka, ldap, metrics) failed"
+    },
+    {
+      "id": "edge_cert_expired",
+      "kind": "root",
+      "text": "the gateway's public certificate is past its notAfter",
+      "when": "seed[6] % 2 == 0"
+    },
+    {
+      "id": "edge_chain_incomplete",
+      "kind": "root",
+      "text": "the gateway serves the leaf without the issuing intermediate",
+      "when": "seed[6] % 2 == 1"
+    },
+    {
+      "id": "gateway_clock_skew",
+      "kind": "decoy",
+      "text": "the gateway's clock drifted, so valid certificates look expired"
+    },
+    {
+      "id": "mesh_client_cert_expired",
+      "kind": "root",
+      "text": "the gateway's mTLS client certificate for the backend expired",
+      "when": "seed[7] % 2 == 1"
+    },
+    {
+      "id": "mesh_truststore_replaced",
+      "kind": "root",
+      "text": "the gateway's mesh trust bundle holds a different CA with the same name",
+      "when": "seed[7] % 2 == 0"
+    },
+    {
+      "id": "public_root_ca_expired",
+      "kind": "decoy",
+      "text": "the public root CA expired"
+    }
+  ],
+  "timeline_tolerance_s": 30
+}

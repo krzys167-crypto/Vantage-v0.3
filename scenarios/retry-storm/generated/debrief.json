@@ -1,0 +1,49 @@
+{
+  "causes": [
+    {
+      "id": "api_connection_pool_exhausted",
+      "kind": "decoy",
+      "text": "the api ran out of connections to inventory"
+    },
+    {
+      "id": "inventory_cpu_limit_cut",
+      "kind": "root",
+      "text": "inventory's CPU limit was halved to 500m",
+      "when": "seed[6] % 2 == 1"
+    },
+    {
+      "id": "inventory_memory_leak",
+      "kind": "decoy",
+      "text": "inventory leaks memory and slows down over time"
+    },
+    {
+      "id": "inventory_workers_cut",
+      "kind": "root",
+      "text": "inventory's worker pool was cut from 8 to 2",
+      "when": "seed[6] % 2 == 0"
+    },
+    {
+      "id": "retries_6x_150ms_no_jitter",
+      "kind": "root",
+      "text": "the api retries 6 times with a 150 ms timeout, no backoff and no jitter",
+      "when": "seed[7] % 2 == 1"
+    },
+    {
+      "id": "retries_7x_120ms_no_backoff",
+      "kind": "root",
+      "text": "the api retries 7 times with a 120 ms timeout and no backoff",
+      "when": "seed[7] % 2 == 0"
+    },
+    {
+      "id": "traffic_burst",
+      "kind": "contributing",
+      "text": "a short traffic burst pushed the system into the storm"
+    },
+    {
+      "id": "user_traffic_doubled",
+      "kind": "decoy",
+      "text": "user traffic doubled for good"
+    }
+  ],
+  "timeline_tolerance_s": 30
+}

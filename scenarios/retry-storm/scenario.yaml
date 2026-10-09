@@ -83,3 +83,17 @@ hints:
   - after_s: 1200
     cost: 5
     text: "A sane client: a few retries at most, exponential backoff with jitter, and a timeout above the service's real latency. Serving a static fallback hides the outage and is graded as a regression."
+
+# Post-mortem catalog (make postmortem / make debrief): the grader checks the
+# causes named in the write-up against the ones this attempt's seed produced.
+debrief:
+  timeline_tolerance_s: 30
+  causes:
+    - {id: inventory_workers_cut,          when: "seed[6] % 2 == 0", text: "inventory's worker pool was cut from 8 to 2"}
+    - {id: inventory_cpu_limit_cut,        when: "seed[6] % 2 == 1", text: "inventory's CPU limit was halved to 500m"}
+    - {id: retries_7x_120ms_no_backoff,    when: "seed[7] % 2 == 0", text: "the api retries 7 times with a 120 ms timeout and no backoff"}
+    - {id: retries_6x_150ms_no_jitter,     when: "seed[7] % 2 == 1", text: "the api retries 6 times with a 150 ms timeout, no backoff and no jitter"}
+    - {id: traffic_burst, kind: contributing, text: "a short traffic burst pushed the system into the storm"}
+    - {id: inventory_memory_leak,         kind: decoy, text: "inventory leaks memory and slows down over time"}
+    - {id: api_connection_pool_exhausted, kind: decoy, text: "the api ran out of connections to inventory"}
+    - {id: user_traffic_doubled,          kind: decoy, text: "user traffic doubled for good"}

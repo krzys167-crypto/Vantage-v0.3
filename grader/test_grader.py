@@ -16,6 +16,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import server  # noqa: E402
+import debrief as pm  # noqa: E402  (framework/, on the path via server)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -52,8 +53,8 @@ class GraderTest(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
 
-    def start(self, scenario="certificate-apocalypse"):
-        code, a = self.call("POST", "/v1/attempts", {"user": "t@x", "scenario": scenario})
+    def start(self, scenario="certificate-apocalypse", user="t@x"):
+        code, a = self.call("POST", "/v1/attempts", {"user": user, "scenario": scenario})
         self.assertEqual(code, 201)
         a["host"] = f"api-{a['seed'][:6]}.vantage.local"
         a["flag"] = server.expected_flag(a["seed"], a["host"])
@@ -77,7 +78,159 @@ class GraderTest(unittest.TestCase):
                          {"assertions": assertions, "mode": "docker", "baseline": {}, "current": {}}, a["token"],
                          headers)
 
+    # --- post-mortem helpers ----------------------------------------------------
+    def user_key(self):
+        path = os.path.join(self.tmp, f"user-{time.time_ns()}.key")
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ed25519", "-out", path], check=True, capture_output=True)
+        pub = subprocess.run(["openssl", "pkey", "-in", path, "-pubout"], check=True, capture_output=True, text=True)
+        return path, pub.stdout
+
+    def incident(self, scenario="retry-storm", user="t@x"):
+        """Graded attempt that fails for a moment, then recovers; returns (attempt, recovery time)."""
+        a = self.start(scenario, user)
+        self.ev(a, "break", {"host": a["host"]})
+        self.live(a, 3, ok=False, dt=0.3)
+        recovered = time.time()
+        self.live(a, 15, ok=True, flag=a["flag"], dt=0.3)
+        code, res = self.submit(a)
+        self.assertEqual(code, 200, res)
+        return a, recovered
+
+    @staticmethod
+    def postmortem(a, causes, mitigated, detected=None):
+        iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
+        hm = lambda t: time.strftime("%H:%M:%SZ", time.gmtime(t))  # noqa: E731
+        t0 = mitigated - 5
+        return f"""---
+attempt: {a['attempt_id']}
+detected: {iso(detected or t0)}
+mitigated: {iso(mitigated)}
+causes: {', '.join(causes)}
+---
+# Post-mortem
+## Summary
+Checkouts failed.
+## Impact
+All users for a few seconds.
+## Timeline
+- {hm(t0)} alert: checkout errors
+- {hm(t0 + 1)} inventory metrics: 8x amplification
+- {hm(t0 + 2)} retry policy reverted
+- {hm(mitigated)} checkouts served again
+## Root cause
+See causes.
+## Resolution
+Reverted both changes.
+## Action items
+- [prevent] review retry policies against a load model
+- [detect] alert on attempts per checkout
+"""
+
+    def send_pm(self, a, md, key):
+        path, pub = key
+        with tempfile.NamedTemporaryFile() as msg:
+            msg.write(pm.message(a["attempt_id"], md))
+            msg.flush()
+            sig = subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", path, "-rawin", "-in", msg.name],
+                                 check=True, capture_output=True).stdout
+        return self.call("POST", f"/v1/attempts/{a['attempt_id']}/debrief",
+                         {"markdown": md, "pubkey": pub, "signature": base64.b64encode(sig).decode()}, a["token"])
+
+    def truth(self, a, scenario="retry-storm"):
+        cat = self.g.debrief_cfg(scenario)
+        return cat, pm.occurred(cat, a["seed"])
+
     # --- tests -----------------------------------------------------------------
+    def test_postmortem_verified_against_evidence(self):
+        a, recovered = self.incident(user="pm-ok@x")
+        _, (root, contrib) = self.truth(a)
+        self.assertEqual(len(root), 2)
+        self.assertEqual(contrib, {"traffic_burst"})
+        md = self.postmortem(a, sorted(root | contrib), recovered + 2)
+        code, res = self.send_pm(a, md, self.user_key())
+        self.assertEqual(code, 200, res)
+        r = res["result"]
+        self.assertEqual(r["verdict"], "verified", r)
+        self.assertEqual(r["causes"]["missed"], [])
+        self.assertLess(r["timeline"]["mitigated_error_s"], 5)
+        self.assertGreaterEqual(r["score"], 95)
+        self.assertTrue(r["trust"]["causes"].startswith("local run"))
+        # signed by the grader, readable later, and only one per attempt
+        _, pem = self.call("GET", "/v1/pubkey")
+        with tempfile.TemporaryDirectory() as d:
+            for name, data in (("pub.pem", pem), ("msg", server.canonical(r)), ("sig", base64.b64decode(res["signature"]))):
+                open(os.path.join(d, name), "wb").write(data)
+            v = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", f"{d}/pub.pem", "-rawin",
+                                "-in", f"{d}/msg", "-sigfile", f"{d}/sig"], capture_output=True)
+            self.assertEqual(v.returncode, 0)
+        self.assertEqual(self.call("GET", f"/v1/attempts/{a['attempt_id']}/debrief", token=a["token"])[1]["result"], r)
+        self.assertEqual(self.send_pm(a, md, self.user_key())[0], 409)
+
+    def test_postmortem_with_wrong_causes_or_timeline_is_insufficient(self):
+        a, recovered = self.incident(user="pm-wrong@x")
+        cat, (root, _) = self.truth(a)
+        # the other variants of the same faults plus a decoy: plausible, not what happened
+        wrong = sorted({c["id"] for c in cat["causes"] if c.get("when")} - root) + ["inventory_memory_leak"]
+        md = self.postmortem(a, wrong, recovered + 600)   # and a made-up recovery time
+        code, res = self.send_pm(a, md, self.user_key())
+        self.assertEqual(code, 200, res)
+        r = res["result"]
+        self.assertEqual(r["verdict"], "insufficient")
+        self.assertEqual(sorted(r["causes"]["missed"]), sorted(root))
+        self.assertEqual(len(r["causes"]["wrong"]), 3)
+        self.assertEqual(r["parts"]["mitigated"], 0)
+        self.assertLess(r["score"], 40)
+
+    def test_listing_every_cause_is_not_a_strategy(self):
+        a, recovered = self.incident(user="pm-all@x")
+        cat, _ = self.truth(a)
+        md = self.postmortem(a, [c["id"] for c in cat["causes"]], recovered)
+        r = self.send_pm(a, md, self.user_key())[1]["result"]
+        self.assertEqual(r["causes"]["missed"], [])
+        self.assertEqual(r["verdict"], "insufficient", r["parts"])     # recall 1, precision 3/8
+
+    def test_postmortem_needs_submit_signature_and_valid_format(self):
+        key = self.user_key()
+        a = self.start("retry-storm", "pm-format@x")
+        self.ev(a, "break", {"host": a["host"]})
+        self.assertEqual(self.send_pm(a, self.postmortem(a, ["traffic_burst"], time.time()), key)[0], 409)
+        self.live(a, 12, ok=True, flag=a["flag"], dt=0.4)
+        self.assertEqual(self.submit(a)[0], 200)
+        md = self.postmortem(a, ["traffic_burst"], time.time())
+        # a signature over another text (or no real signature) is refused and changes nothing
+        forged = self.call("POST", f"/v1/attempts/{a['attempt_id']}/debrief",
+                           {"markdown": md, "pubkey": key[1], "signature": base64.b64encode(b"x" * 64).decode()},
+                           a["token"])
+        self.assertEqual(forged[0], 403)
+        self.assertEqual(self.send_pm(a, md, key)[0], 200)
+        # format problems never use up the one post-mortem
+        b = self.start("retry-storm", "pm-format@x")
+        self.ev(b, "break", {"host": b["host"]})
+        self.live(b, 12, ok=True, flag=b["flag"], dt=0.4)
+        self.submit(b)
+        code, res = self.send_pm(b, self.postmortem(b, ["made_up_cause"], time.time()), key)
+        self.assertEqual(code, 422)
+        self.assertIn("unknown cause", " ".join(res["problems"]))
+        code, res = self.send_pm(b, self.postmortem(a, ["traffic_burst"], time.time()), key)   # other attempt id
+        self.assertEqual(code, 422)
+        self.assertEqual(self.send_pm(b, self.postmortem(b, ["traffic_burst"], time.time()), key)[0], 200)
+
+    def test_postmortem_key_is_bound_to_the_user(self):
+        a, rec = self.incident(user="pm-key@x")
+        b, rec_b = self.incident(user="pm-key@x")
+        self.assertEqual(self.send_pm(a, self.postmortem(a, ["traffic_burst"], rec), self.user_key())[0], 200)
+        code, res = self.send_pm(b, self.postmortem(b, ["traffic_burst"], rec_b), self.user_key())
+        self.assertEqual(code, 403, res)
+        self.assertIn("another key", res["error"])
+
+    def test_cause_catalogs_cover_every_seed_branch(self):
+        for scn in ("certificate-apocalypse", "clock-drift", "dns-poison", "retry-storm"):
+            cat = self.g.debrief_cfg(scn)
+            for nib in "0123456789abcdef":
+                seed = nib * 64
+                root, _ = pm.occurred(cat, seed)
+                self.assertEqual(len(root), 2, (scn, seed, root))   # every scenario injects two faults
+
     def test_happy_path_scores_and_signs(self):
         a = self.start()
         self.assertEqual(self.ev(a, "break", {"host": a["host"]})[0], 200)

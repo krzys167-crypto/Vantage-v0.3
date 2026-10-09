@@ -439,6 +439,54 @@
           }
         }
       }
+    },
+    "debrief": {
+      "type": "object",
+      "required": [
+        "causes"
+      ],
+      "additionalProperties": false,
+      "description": "post-mortem catalog: the grader checks the trainee's causes against the ones this seed produced",
+      "properties": {
+        "timeline_tolerance_s": {
+          "type": "integer",
+          "minimum": 5
+        },
+        "causes": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "text"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{2,63}$"
+              },
+              "text": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "root",
+                  "contributing",
+                  "decoy"
+                ],
+                "description": "default root"
+              },
+              "when": {
+                "type": "string",
+                "pattern": "^seed\\[\\d+\\] % \\d+ == \\d+$",
+                "description": "occurred only for seeds matching; omitted = always (decoys never)"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

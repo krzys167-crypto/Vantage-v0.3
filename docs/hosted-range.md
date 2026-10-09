@@ -25,6 +25,8 @@ export GRADER_URL=http://grader:8700 KUBE_CONTEXT=k3d-vantage
 id=$(range/range.sh start certificate-apocalypse jan@firma.pl | tail -1)
 # -> range/.sessions/$id/trainee.kubeconfig przekazujesz uczestnikowi
 range/range.sh grade "$id"      # po zgłoszeniu przez uczestnika
+range/range.sh postmortem "$id" > postmortem.md    # szablon post-mortemu dla uczestnika
+range/range.sh debrief "$id" bundle.json          # post-mortem podpisany przez uczestnika (docs/debrief.md)
 range/range.sh stop  "$id"
 
 # uczestnik

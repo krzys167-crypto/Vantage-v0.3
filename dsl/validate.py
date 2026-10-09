@@ -4,7 +4,7 @@
     python dsl/validate.py [--emit | --check] [scenarios/*/scenario.yaml]
 
   (default)  schema + semantic checks only
-  --emit     also write <scenario>/generated/{scoring,hints}.json
+  --emit     also write <scenario>/generated/{scoring,hints,debrief}.json
   --check    fail if generated/ files are missing or stale (used in CI)
 
 scenario.yaml is the single source of truth: the framework's score.py and
@@ -46,6 +46,18 @@ def semantic_errors(doc, scn_dir):
     t = doc["scoring"]["tiers"]
     if not t["pass"] < t["merit"] < t["elite"]:
         errs.append("scoring.tiers must satisfy pass < merit < elite")
+    causes = (doc.get("debrief") or {}).get("causes", [])
+    cids = [c["id"] for c in causes]
+    if len(cids) != len(set(cids)):
+        errs.append("debrief.causes: duplicate ids")
+    if causes and not any(c.get("kind", "root") == "root" for c in causes):
+        errs.append("debrief.causes: needs at least one root cause")
+    for c in causes:
+        if c.get("kind") == "decoy" and c.get("when"):
+            errs.append(f"debrief cause {c['id']}: a decoy never occurs, drop 'when'")
+        idx = int(c["when"].split("[")[1].split("]")[0]) if c.get("when") else 0
+        if idx > 63:
+            errs.append(f"debrief cause {c['id']}: seed index {idx} out of range")
     for rel in [doc["env"].get("compose"), doc["env"].get("manifests")]:
         if rel and not os.path.exists(os.path.join(scn_dir, rel)):
             errs.append(f"env file not found: {rel}")
@@ -67,7 +79,14 @@ def generated(doc):
     }
     hints = [{"after_s": h["after_s"], "cost": h.get("cost", s["penalties"]["hint"]), "text": h["text"]}
              for h in doc.get("hints", [])]
-    return {"scoring.json": scoring, "hints.json": hints}
+    out = {"scoring.json": scoring, "hints.json": hints}
+    if doc.get("debrief"):
+        d = doc["debrief"]
+        out["debrief.json"] = {"timeline_tolerance_s": d.get("timeline_tolerance_s", 30),
+                               "causes": [{"id": c["id"], "text": c["text"], "kind": c.get("kind", "root"),
+                                           **({"when": c["when"]} if c.get("when") else {})}
+                                          for c in sorted(d["causes"], key=lambda c: c["id"])]}
+    return out
 
 
 def dump(obj):

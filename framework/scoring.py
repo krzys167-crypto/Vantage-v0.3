@@ -29,19 +29,25 @@ def pct(vals, p):
     return s[min(len(s) - 1, math.ceil(p / 100 * len(s)) - 1)]
 
 
-def compute(cfg, mode, stable_window, t_break, now, hints, probes, asr, base, cur):
-    W, P, T, C = cfg["weights"], cfg["penalties"], cfg["tiers"], cfg["caps"]
-    inc = sorted((p for p in probes if p["ts"] >= t_break), key=lambda p: p["ts"])
-    if not inc:
-        raise ValueError("no probes since break")
-
-    # MTTR: first failed probe after break -> start of the final unbroken healthy streak
+def recovery(inc):
+    """MTTR endpoints over probes since break, sorted by ts: first failed probe ->
+    start of the final unbroken healthy streak (None when it never failed / recovered)."""
     first_fail = next((p["ts"] for p in inc if not p["ok"]), None)
     recovered = None
     for p in reversed(inc):
         if not p["ok"]:
             break
         recovered = p["ts"]
+    return first_fail, recovered
+
+
+def compute(cfg, mode, stable_window, t_break, now, hints, probes, asr, base, cur):
+    W, P, T, C = cfg["weights"], cfg["penalties"], cfg["tiers"], cfg["caps"]
+    inc = sorted((p for p in probes if p["ts"] >= t_break), key=lambda p: p["ts"])
+    if not inc:
+        raise ValueError("no probes since break")
+
+    first_fail, recovered = recovery(inc)
     mttr = (recovered - first_fail) if (recovered and first_fail) else None
 
     availability = sum(p["ok"] for p in inc) / len(inc)

@@ -3,3 +3,4 @@
 __pycache__/
 grader/.data/
 range/.sessions/
+scenarios/*/postmortem.md
