@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [certificate-apocalypse, clock-drift, dns-poison]
+        scenario: [certificate-apocalypse, clock-drift, dns-poison, retry-storm]
     steps:
       - uses: actions/checkout@v4
       - name: start grader
@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [certificate-apocalypse, clock-drift, dns-poison]
+        scenario: [certificate-apocalypse, clock-drift, dns-poison, retry-storm]
         # seed nibbles 6..8 select the faults: cover every branch
         seed:
           - "000000000000000000000000000000000000000000000000000000000000000a"
@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [certificate-apocalypse, clock-drift, dns-poison]
+        scenario: [certificate-apocalypse, clock-drift, dns-poison, retry-storm]
         seed:
           - "000000000000000000000000000000000000000000000000000000000000000a"
           - "000000111000000000000000000000000000000000000000000000000000000d"
@@ -113,6 +113,7 @@ jobs:
           - {scenario: certificate-apocalypse, trainee: trainee_cert.sh}
           - {scenario: clock-drift, trainee: trainee_clock.sh}
           - {scenario: dns-poison, trainee: trainee_dns.sh}
+          - {scenario: retry-storm, trainee: trainee_retry.sh}
     steps:
       - uses: actions/checkout@v4
       - name: k3d cluster + grader

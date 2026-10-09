@@ -60,7 +60,7 @@ W przeciwnym razie ocena brzmi `unverified`: liczba punktów zostaje informacyjn
 - **Ukryte asercje są w repo.** W repo jest pakiet publiczny (`ci/hidden.sh`). Zdeterminowany uczestnik może go przeczytać i spreparować `assertions.json`. Prywatny pakiet działa tylko w hosted range.
 - **Prober fałszowany na żywo.** Ktoś, kto zna `flag_secret` z `.state/` i przez cały incydent streamuje w czasie rzeczywistym spreparowane próbki, przejdzie kontrole. To wymaga pracy na żywo i nie da się tego zrobić po fakcie, ale jest możliwe.
 
-Jedyne pełne rozwiązanie to środowisko, którego uczestnik nie kontroluje. Pierwszy krok jest już zrobiony: **hosted range** ([docs/hosted-range.md](hosted-range.md)) zamyka trzy pierwsze luki dla wszystkich trzech scenariuszy. Dalszy plan:
+Jedyne pełne rozwiązanie to środowisko, którego uczestnik nie kontroluje. Pierwszy krok jest już zrobiony: **hosted range** ([docs/hosted-range.md](hosted-range.md)) zamyka te luki dla wszystkich scenariuszy. Dalszy plan:
 
 1. Środowisko na infrastrukturze platformy (k3d/microVM per próba). Prober i asercje działają obok, a uczestnik dostaje tylko shell do „produkcji”.
 2. ~~Ukryte asercje ładowane z prywatnego katalogu, niepublikowane w repo.~~ Zrobione w hosted range (`RANGE_HIDDEN_PACK`, `GRADER_HIDDEN_PACKS`).

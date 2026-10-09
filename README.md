@@ -41,6 +41,7 @@ Na Linuksie i macOS (`pwsh`) skrypt działa tylko w trybie `-CheckOnly`.
 | [Certificate Apocalypse](scenarios/certificate-apocalypse/) | wygasły/niepełny łańcuch TLS na brzegu + zepsute mTLS do backendu | `cd scenarios/certificate-apocalypse && make up break` |
 | [Clock Drift](scenarios/clock-drift/) | przesunięty zegar psuje JWT (`nbf`/`exp`) + niedokończona rotacja klucza podpisu | `cd scenarios/clock-drift && make up break` |
 | [Split-Brain DNS](scenarios/dns-poison/) | zatruty rekord albo zapomniany override + zniknięty rekord, cache z TTL i NXDOMAIN, serial strefy | `cd scenarios/dns-poison && make up break` |
+| [Retry Storm](scenarios/retry-storm/) | obcięta przepustowość + agresywne ponowienia: awaria metastabilna, która trwa po przywróceniu przepustowości | `cd scenarios/retry-storm && make up break` |
 
 Scenariusze opisuje DSL v0 (`dsl/scenario.schema.v0.json`).
 `scenario.yaml` jest jedynym źródłem wag, progów i podpowiedzi: `python dsl/validate.py --emit` generuje z niego `generated/*.json`, z których korzysta `framework/` (runtime docker/k3d, scoring, hinty).
@@ -66,4 +67,4 @@ Model zagrożeń, w tym to, czego grader jeszcze nie chroni, jest w [docs/grader
 `range/range.sh start <scenario>` stawia scenariusz na klastrze platformy, w osobnym namespace.
 Uczestnik dostaje tylko kubeconfig z rolą ograniczoną do naprawy, bez dostępu do probera, sekretów backendu i asercji.
 Asercje i ocenę wykonuje platforma.
-Działa dla wszystkich trzech scenariuszy. Szczegóły i granice uprawnień: [docs/hosted-range.md](docs/hosted-range.md).
+Działa dla wszystkich czterech scenariuszy. Szczegóły i granice uprawnień: [docs/hosted-range.md](docs/hosted-range.md).

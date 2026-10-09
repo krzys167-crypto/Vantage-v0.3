@@ -70,8 +70,10 @@ def main(scn):
     files = {}
     for rel in cfg.get("evidence_files", []):
         d = os.path.join(state, rel[len(".state/"):]) if rel.startswith(".state/") else os.path.join(scn, rel)
-        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            files[f"{rel}/{f}"] = sha256(os.path.join(d, f))
+        for root, _, names in sorted(os.walk(d)):      # nested dirs too (e.g. config/history)
+            for f in sorted(names):
+                p = os.path.join(root, f)
+                files[f"{rel}/{os.path.relpath(p, d)}"] = sha256(p)
     report = dict({"scenario": env["SCENARIO"], "user": env["USER_ID"], "seed_prefix": env["SEED"][:12],
                    "mode": env.get("MODE"), "generated_at": now, "trust": "practice (local evidence, local key)"},
                   **r, assertions=asr, evidence=files, timeline=[{"ts": ts, "event": ev} for ts, ev in tl])
