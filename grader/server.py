@@ -32,6 +32,8 @@ API (JSON; per-attempt bearer token returned at creation):
   GET  /v1/attempts/<id>/result                                   -> signed result
   POST /v1/attempts/<id>/debrief         {markdown, pubkey, signature} -> signed debrief (once, after submit)
   GET  /v1/attempts/<id>/debrief                                  -> signed debrief
+  GET  /v1/users/<user>/profile                                   -> signed badges and bests (docs/league.md)
+  GET  /v1/league?season=YYYY-MM                                  -> signed monthly league (aliases only)
   GET  /v1/pubkey                                                 -> PEM
 """
 import argparse
@@ -49,10 +51,12 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "framework"))
 import debrief as pm  # noqa: E402
+import league  # noqa: E402
 from scoring import compute, recovery  # noqa: E402
 
 SKEW_S = float(os.environ.get("GRADER_SKEW_S", "15"))          # live window for probe timestamps
@@ -389,6 +393,24 @@ class Grader:
             self.db.commit()
         return 200, {"result": result, "signature": sig_out, "alg": "ed25519", "signed": "canonical JSON of result"}
 
+    def history(self):
+        attempts = [{"id": r[0], "user": r[1], "scenario": r[2], "submitted": r[3], "result": json.loads(r[4])}
+                    for r in self.db.execute("SELECT id, user, scenario, submitted, result FROM attempts "
+                                             "WHERE submitted IS NOT NULL")]
+        debriefs = {r[0]: json.loads(r[1]) for r in self.db.execute("SELECT attempt, result FROM debriefs")}
+        return attempts, debriefs
+
+    def signed(self, doc):
+        return 200, {"result": doc, "signature": self.sign(doc), "alg": "ed25519"}
+
+    def profile(self, user):
+        return self.signed(league.profile(user, *self.history()))
+
+    def league(self, month):
+        if not re.match(r"^\d{4}-\d{2}$", month):
+            return 400, {"error": "season is YYYY-MM"}
+        return self.signed(league.league(month, *self.history()))
+
     def debrief_result(self, a):
         row = self.db.execute("SELECT result, signature FROM debriefs WHERE attempt=?", (a["id"],)).fetchone()
         if not row:
@@ -423,6 +445,11 @@ def make_handler(g):
                     return self.reply(200, g.pubkey, "application/x-pem-file")
                 if parts == ["v1", "attempts"] and method == "POST":
                     return self.reply(*g.create(body))
+                if len(parts) == 4 and parts[:2] == ["v1", "users"] and parts[3] == "profile" and method == "GET":
+                    return self.reply(*g.profile(urllib.parse.unquote(parts[2])))
+                if parts == ["v1", "league"] and method == "GET":
+                    q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                    return self.reply(*g.league(q.get("season", [league.season(time.time())])[0]))
                 if len(parts) >= 3 and parts[:2] == ["v1", "attempts"]:
                     token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
                     a = g.attempt(parts[2], token)
