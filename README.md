@@ -80,6 +80,11 @@ Odznaki (`surgeon`, `coroner`, `range_certified` i inne) oraz miesięczna liga l
 Każda odznaka wskazuje próbę, której podpisany wynik można zweryfikować. Liga pokazuje tylko aliasy.
 `python framework/grader_client.py profile <user>` / `league`. Szczegóły: [docs/league.md](docs/league.md).
 
+## Tożsamość
+
+Grader może wymagać zalogowanego użytkownika: JWT od dostawcy (np. Supabase Auth, weryfikowany przez JWKS) albo token platformy.
+Użytkownika i zespół bierze wtedy tylko z tokenu. Szczegóły: [docs/identity.md](docs/identity.md).
+
 ## Hosted range (środowisko po stronie platformy)
 
 `range/range.sh start <scenario>` stawia scenariusz na klastrze platformy, w osobnym namespace.

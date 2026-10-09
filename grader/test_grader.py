@@ -330,6 +330,27 @@ Reverted both changes.
         p = self.call("GET", "/v1/users/victim%40x/profile")[1]["result"]
         self.assertEqual(p["scenarios"]["retry-storm"]["attempts"], 1)
 
+    def test_identity_provider_jwt_starts_an_attempt(self):
+        """Supabase-style login: ES256 JWT checked against the provider's JWKS."""
+        import jwks
+        import test_jwks
+        key = test_jwks.Key(self.tmp, "EC", "idp-1")
+        path = os.path.join(self.tmp, "idp-jwks.json")
+        json.dump({"keys": [key.jwk]}, open(path, "w"))
+        for name, value in (("JWKS_URL", "file://" + path), ("JWT_ISSUER", test_jwks.ISS)):
+            self.addCleanup(setattr, server, name, getattr(server, name))
+            setattr(server, name, value)
+        tok = key.token(test_jwks.claims(email="ola@firma.pl"))
+        code, a = self.start_as({"X-Vantage-User": tok}, user="ceo@x")
+        self.assertEqual(code, 201, a)
+        self.assertEqual((a["user"], a["identity"]), ("ola@firma.pl", "identity provider"))
+        team = self.g.identity_of(a["attempt_id"])[1]
+        self.assertEqual(team, "sre-waw")         # app_metadata (admin-set), not user_metadata
+        forged = tok.rsplit(".", 1)[0] + "." + test_jwks.b64u(b"\x00" * 64)
+        self.assertEqual(self.start_as({"X-Vantage-User": forged})[0], 401)
+        self.assertEqual(self.start_as(None)[0], 401)
+        self.assertIsInstance(jwks.claim({"a": {"b": 1}}, "a.b"), int)
+
     def test_cause_catalogs_cover_every_seed_branch(self):
         for scn in ("certificate-apocalypse", "clock-drift", "dns-poison", "retry-storm"):
             cat = self.g.debrief_cfg(scn)

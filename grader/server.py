@@ -58,6 +58,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "framework"))
 import debrief as pm  # noqa: E402
 import identity  # noqa: E402
+import jwks  # noqa: E402
 import league  # noqa: E402
 from scoring import compute, recovery  # noqa: E402
 
@@ -68,6 +69,37 @@ ATTEST_MAX_GAP_S = 10.0                                         # longest blind 
 PLATFORM_TOKEN = os.environ.get("GRADER_PLATFORM_TOKEN", "")
 HIDDEN_PACKS = os.environ.get("GRADER_HIDDEN_PACKS", "")         # JSON file {scenario: [sha256, ...]}
 USER_SECRET = os.environ.get("GRADER_USER_SECRET", "")           # set: users come from platform tokens only
+# or from an identity provider's JWTs (e.g. Supabase Auth): asymmetric, verified against its JWKS
+JWKS_URL = os.environ.get("GRADER_JWKS_URL", "")
+JWT_ISSUER = os.environ.get("GRADER_JWT_ISSUER", "")
+JWT_AUDIENCE = os.environ.get("GRADER_JWT_AUDIENCE", "authenticated")
+JWT_USER_CLAIM = os.environ.get("GRADER_JWT_USER_CLAIM", "email")             # falls back to sub
+JWT_TEAM_CLAIM = os.environ.get("GRADER_JWT_TEAM_CLAIM", "app_metadata.team")  # admin-set, never user_metadata
+VOUCHED = ("platform token", "identity provider")
+_VERIFIER = {}
+
+
+def jwt_verifier():
+    key = (JWKS_URL, JWT_ISSUER, JWT_AUDIENCE)
+    if key not in _VERIFIER:
+        _VERIFIER.clear()
+        _VERIFIER[key] = jwks.JWKSVerifier(JWKS_URL, JWT_ISSUER, JWT_AUDIENCE)
+    return _VERIFIER[key]
+
+
+def authenticate(token):
+    """(user, team, source) from a platform HMAC token or an IdP JWT; raises PermissionError."""
+    if not token:
+        raise PermissionError("this grader needs a user token (X-Vantage-User): log in on the platform")
+    if token.count(".") == 2 and JWKS_URL:
+        claims = jwt_verifier().verify(token)
+        user = jwks.claim(claims, JWT_USER_CLAIM) or claims["sub"]
+        team = jwks.claim(claims, JWT_TEAM_CLAIM)
+        return str(user)[:200], (str(team)[:100] if team else None), "identity provider"
+    if USER_SECRET:
+        claims = identity.verify(USER_SECRET, token)
+        return claims["sub"], claims.get("team"), "platform token"
+    raise PermissionError("unsupported user token")
 DEBRIEF_TTL_S = float(os.environ.get("GRADER_DEBRIEF_TTL_S", "86400"))  # post-mortem deadline after submit
 SCENARIO_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
@@ -182,14 +214,11 @@ class Grader:
     def create(self, body, user_token=None):
         scenario = str(body.get("scenario", ""))
         self.scoring_cfg(scenario)  # validates the scenario exists
-        if USER_SECRET:
-            if not user_token:
-                return 401, {"error": "this grader needs a platform user token (X-Vantage-User)"}
+        if USER_SECRET or JWKS_URL:
             try:
-                claims = identity.verify(USER_SECRET, user_token)
+                user, team, source = authenticate(user_token)
             except PermissionError as e:
                 return 401, {"error": str(e)}
-            user, team, source = claims["sub"], claims.get("team"), "platform token"
         else:
             user, team, source = str(body.get("user", "anonymous"))[:200], None, "self-declared"
         aid, token = secrets.token_hex(8), secrets.token_urlsafe(24)
@@ -394,7 +423,7 @@ class Grader:
                 return 409, {"error": "post-mortem already recorded (one per attempt)"}
             # Trust on first use: a user's first post-mortem binds their key, but only
             # for users the platform vouched for; a self-declared name could be anyone's.
-            vouched = self.identity_of(a["id"])[0] == "platform token"
+            vouched = self.identity_of(a["id"])[0] in VOUCHED
             known = self.db.execute("SELECT key_sha FROM authors WHERE user=?", (a["user"],)).fetchone()
             if vouched and known and known[0] != key_sha:
                 return 403, {"error": f"user {a['user']} signs post-mortems with another key"}
@@ -425,7 +454,7 @@ class Grader:
         attempts = [{"id": r[0], "user": r[1], "scenario": r[2], "submitted": r[3], "result": json.loads(r[4]),
                      "team": r[6]} for r in rows
                     # once the platform vouches for users, self-declared names no longer count
-                    if not USER_SECRET or r[5] == "platform token"]
+                    if not (USER_SECRET or JWKS_URL) or r[5] in VOUCHED]
         debriefs = {r[0]: json.loads(r[1]) for r in self.db.execute("SELECT attempt, result FROM debriefs")}
         return attempts, debriefs
 
