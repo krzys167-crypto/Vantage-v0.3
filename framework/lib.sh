@@ -216,6 +216,11 @@ scenario_up() {
     local s; for s in "${SERVICES[@]}"; do "${KUBE[@]}" rollout status "deploy/$s" --timeout=180s >/dev/null; done
     "${KUBE[@]}" get pods -o wide
   else
+    # registries hiccup ("unknown blob"); a pull is idempotent, so retry it before up
+    local i; for i in 1 2 3; do
+      "${COMPOSE[@]}" pull -q --ignore-buildable 2>&1 && break
+      [[ $i == 3 ]] || { warn "image pull failed (attempt $i/3), retrying in $(( i * 5 ))s"; sleep $(( i * 5 )); }
+    done
     "${COMPOSE[@]}" up -d --wait
   fi
   timeline up
