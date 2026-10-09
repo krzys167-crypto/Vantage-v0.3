@@ -1,0 +1,54 @@
+{
+  "blast_radius": {
+    "recreate_penalty": [
+      {
+        "mode": "docker",
+        "points": 3,
+        "service": "api"
+      },
+      {
+        "mode": "docker",
+        "points": 3,
+        "service": "inventory"
+      }
+    ],
+    "unaffected": [
+      "loadgen",
+      "prober"
+    ]
+  },
+  "caps": {
+    "public_fail": 40,
+    "security_weakened": 65
+  },
+  "evidence_files": [
+    ".state/config"
+  ],
+  "latency": {
+    "full_p95_ms": 150,
+    "zero_p95_ms": 1500
+  },
+  "penalties": {
+    "hint": 5,
+    "restart_unaffected": 10
+  },
+  "security_critical": [
+    "H5"
+  ],
+  "tiers": {
+    "elite": 92,
+    "merit": 80,
+    "pass": 60
+  },
+  "time_to_recover": {
+    "full_s": 900,
+    "zero_s": 3600
+  },
+  "weights": {
+    "availability": 20,
+    "blast_radius": 15,
+    "hidden": 20,
+    "latency": 10,
+    "time_to_recover": 35
+  }
+}

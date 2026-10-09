@@ -1,0 +1,17 @@
+[
+  {
+    "after_s": 300,
+    "cost": 5,
+    "text": "Compare what users send (api checkouts per second) with what inventory receives (make metrics). If inventory gets several times more requests than users make, who is sending the rest?"
+  },
+  {
+    "after_s": 600,
+    "cost": 5,
+    "text": "Read .state/config/history/CHANGELOG.md. Two changes went out the same day; the traffic spike only tipped the system over. Restoring capacity alone does not end a storm that the retries keep feeding."
+  },
+  {
+    "after_s": 1200,
+    "cost": 5,
+    "text": "A sane client: a few retries at most, exponential backoff with jitter, and a timeout above the service's real latency. Serving a static fallback hides the outage and is graded as a regression."
+  }
+]

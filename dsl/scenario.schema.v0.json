@@ -149,7 +149,8 @@
               "kafka_lag",
               "cpu_throttle",
               "jwt_key_rotation_partial",
-              "dns_record_missing"
+              "dns_record_missing",
+              "retry_amplification"
             ]
           },
           "stage": {

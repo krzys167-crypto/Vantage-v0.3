@@ -38,7 +38,7 @@ kubectl get secret issuer-ca -o yaml        # CA do ponownego wystawienia certyf
 
 ## Granice uprawnień
 
-Każdy scenariusz ma własną rolę w `k8s/trainee-role.yaml`. Wszystkie trzy role mają wspólny trzon:
+Każdy scenariusz ma własną rolę w `k8s/trainee-role.yaml`. Wszystkie role mają wspólny trzon:
 
 - uczestnik może czytać pody, serwisy, endpointy, eventy, deploymenty i logi oraz robić `port-forward`;
 - uczestnik nie może listować Secretów, czytać ConfigMap `scenario` (parametry scenariusza), robić `exec`, usuwać podów, tworzyć zasobów ani zmieniać probera.
@@ -50,12 +50,13 @@ Różnią się tym, co jest częścią zadania:
 | Certificate Apocalypse | `gateway-pki` (odczyt i zapis), `issuer-ca` i `clients-ca` (odczyt), restart `deploy/gateway` | `backend-pki`, backend |
 | Clock Drift | ConfigMapy `clock` i `svc-config` (odczyt i zapis), `auth-keys` (tylko odczyt), `api-keyring` (odczyt i zapis), restart `deploy/auth` i `deploy/api` | `api-flag`, `app-code`, zapis do `auth-keys` |
 | Split-Brain DNS | ConfigMapy `zone` i `svc-config` (odczyt i zapis), restart `deploy/dns` i `deploy/api` | Secret `keys` (jedyny Secret), `payments`, `legacy`, `fx` |
+| Retry Storm | ConfigMapa `svc-config` (odczyt i zapis), `change-history` (tylko odczyt), restart `deploy/inventory` i `deploy/api` | Secret `keys`, generator ruchu `loadgen` |
 
 `svc-config` jest w zasięgu celowo: podniesienie `leeway` albo wyłączenie weryfikacji podpisów to droga na skróty, którą wolno wybrać i za którą karzą ukryte asercje.
 
 `SEED` w ogóle nie trafia do klastra, bo nie ma go w ConfigMapie `scenario`. Z seeda wynika sekret flagi i wariant usterek, a pody go nie potrzebują.
 
-Granice sprawdzają w CI `range/tests/trainee_{cert,clock,dns}.sh` (wspólne funkcje w `range/tests/common.sh`). Każdy z nich gra rolę uczestnika:
+Granice sprawdzają w CI `range/tests/trainee_{cert,clock,dns,retry}.sh` (wspólne funkcje w `range/tests/common.sh`). Każdy z nich gra rolę uczestnika:
 
 1. `kubectl auth can-i` dla operacji z tabeli oraz realna próba odczytu sekretu flagi.
 2. Pełna naprawa wyłącznie tymi uprawnieniami, na podstawie diagnozy żywego stanu, a nie listy usterek.

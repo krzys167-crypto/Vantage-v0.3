@@ -1,0 +1,36 @@
+name: vantage-rs
+
+x-py: &py
+  image: ${PYTHON_IMAGE}
+  restart: unless-stopped
+  working_dir: /app
+
+services:
+  inventory:
+    <<: *py
+    command: ["python", "-u", "server.py"]
+    environment: {ROLE: inventory, PORT: "8090"}
+    volumes: [./app:/app:ro, "${STATE_DIR}/secret:/secret:ro", "${STATE_DIR}/config:/config:ro"]
+
+  api:
+    <<: *py
+    depends_on: [inventory]
+    command: ["python", "-u", "server.py"]
+    environment: {ROLE: api, PORT: "8080", VANTAGE_HOST: "${VANTAGE_HOST}"}
+    volumes: [./app:/app:ro, "${STATE_DIR}/secret:/secret:ro", "${STATE_DIR}/config:/config:ro"]
+    ports: ["127.0.0.1:${EDGE_PORT}:8080"]
+
+  # real users: open-loop traffic, they keep coming whatever the answers
+  loadgen:
+    <<: *py
+    depends_on: [api]
+    command: ["python", "-u", "server.py"]
+    environment: {ROLE: loadgen, PORT: "8099", RPS: "${RPS}"}
+    volumes: [./app:/app:ro]
+
+  prober:
+    <<: *py
+    depends_on: [api]
+    command: ["python", "-u", "/probe/probe.py"]
+    environment: {OUT: /evidence/probes.jsonl}
+    volumes: [./prober:/probe:ro, "${STATE_DIR}/evidence:/evidence"]
