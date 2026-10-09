@@ -97,3 +97,6 @@ debrief:
     - {id: token_ttl_too_short,     kind: decoy, text: "auth's token TTL is too short for the request path"}
     - {id: jwt_audience_mismatch,   kind: decoy, text: "tokens are issued for a different audience"}
     - {id: jwt_signing_alg_changed, kind: decoy, text: "auth switched the signing algorithm"}
+  facts:
+    - {id: drift_seconds,   value: "180 + seed[9] * 24", text: "how many seconds the drifted clock was off"}
+    - {id: unrelated_idp,   value: '["partner-idp.example", "sso.legacy.corp", "login.acme-hr.example", "idp.vendor-crm.example"][seed[10] % 4]', text: "the identity provider in the unrelated warning you ruled out"}

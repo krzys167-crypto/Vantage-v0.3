@@ -22,7 +22,8 @@ from scoring import recovery  # noqa: E402
 def main(scn, out="postmortem.md"):
     state = postmortem.state_dir(scn)
     env = dict(l.strip().split("=", 1) for l in open(os.path.join(state, "scenario.env")) if "=" in l)
-    root, contrib = pm.occurred(postmortem.catalog(scn), env["SEED"])
+    cat = postmortem.catalog(scn)
+    root, contrib = pm.occurred(cat, env["SEED"])
     start = json.load(open(os.path.join(state, "evidence", "server_report.json")))["result"]["incident_start"]
     probes = []
     for line in open(os.path.join(state, "evidence", "probes.jsonl")):
@@ -48,7 +49,7 @@ def main(scn, out="postmortem.md"):
     fill = {
         "## Summary": "Users could not complete requests until both injected faults were reverted.",
         "## Impact": f"Every synthetic probe failed from {hm(start)} to {hm(recovered)}.",
-        "## Root cause": "; ".join(sorted(root)),
+        "## Root cause": "; ".join(sorted(root)) + "\nEvidence: " + ", ".join(pm.facts(cat, env["SEED"]).values()),
         "## Resolution": "Reverted the faulty changes and verified the stable window.",
     }
     for head, body in fill.items():

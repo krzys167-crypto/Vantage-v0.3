@@ -97,3 +97,6 @@ debrief:
     - {id: inventory_memory_leak,         kind: decoy, text: "inventory leaks memory and slows down over time"}
     - {id: api_connection_pool_exhausted, kind: decoy, text: "the api ran out of connections to inventory"}
     - {id: user_traffic_doubled,          kind: decoy, text: "user traffic doubled for good"}
+  facts:
+    - {id: capacity_change, value: "4000 + seed[10:13] % 5000", format: "CHG-{}", text: "the change that cut inventory's capacity"}
+    - {id: retry_change,    value: "4001 + seed[10:13] % 5000", format: "CHG-{}", text: "the change that made the api retry harder"}

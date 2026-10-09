@@ -45,5 +45,12 @@
       "text": "the public root CA expired"
     }
   ],
+  "facts": [
+    {
+      "id": "unrelated_tls_warning",
+      "text": "the host in the unrelated TLS warning you ruled out (backend logs)",
+      "value": "[\"redis.cache.internal\", \"kafka-0.mesh.internal\", \"ldap.corp.internal\", \"metrics.mesh.internal\"][seed[8] % 4]"
+    }
+  ],
   "timeline_tolerance_s": 30
 }

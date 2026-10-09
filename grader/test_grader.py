@@ -97,7 +97,7 @@ class GraderTest(unittest.TestCase):
         return a, recovered
 
     @staticmethod
-    def postmortem(a, causes, mitigated, detected=None):
+    def postmortem(a, causes, mitigated, detected=None, evidence=""):
         iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
         hm = lambda t: time.strftime("%H:%M:%SZ", time.gmtime(t))  # noqa: E731
         t0 = mitigated - 5
@@ -118,7 +118,7 @@ All users for a few seconds.
 - {hm(t0 + 2)} retry policy reverted
 - {hm(mitigated)} checkouts served again
 ## Root cause
-See causes.
+See causes. {evidence}
 ## Resolution
 Reverted both changes.
 ## Action items
@@ -146,12 +146,15 @@ Reverted both changes.
         _, (root, contrib) = self.truth(a)
         self.assertEqual(len(root), 2)
         self.assertEqual(contrib, {"traffic_burst"})
-        md = self.postmortem(a, sorted(root | contrib), recovered + 2)
+        cat, _ = self.truth(a)
+        evidence = "Changes " + " and ".join(pm.facts(cat, a["seed"]).values()) + " went out together."
+        md = self.postmortem(a, sorted(root | contrib), recovered + 2, evidence=evidence)
         code, res = self.send_pm(a, md, self.user_key())
         self.assertEqual(code, 200, res)
         r = res["result"]
         self.assertEqual(r["verdict"], "verified", r)
         self.assertEqual(r["causes"]["missed"], [])
+        self.assertEqual(r["facts"]["missing"], [])
         self.assertLess(r["timeline"]["mitigated_error_s"], 5)
         self.assertGreaterEqual(r["score"], 95)
         self.assertTrue(r["trust"]["causes"].startswith("local run"))
@@ -180,6 +183,30 @@ Reverted both changes.
         self.assertEqual(len(r["causes"]["wrong"]), 3)
         self.assertEqual(r["parts"]["mitigated"], 0)
         self.assertLess(r["score"], 40)
+
+    def test_postmortem_must_quote_the_evidence(self):
+        """Right causes from the catalog alone are not enough: the values only the
+        evidence shows (here the change ids) must be in the write-up."""
+        a, recovered = self.incident(user="pm-facts@x")
+        cat, (root, contrib) = self.truth(a)
+        want = pm.facts(cat, a["seed"])
+        md = self.postmortem(a, sorted(root | contrib), recovered, evidence="Two changes went out the same day.")
+        r = self.send_pm(a, md, self.user_key())[1]["result"]
+        self.assertEqual(r["verdict"], "insufficient")
+        self.assertEqual(r["facts"]["missing"], sorted(want))
+        # the feedback names what to look for, never the values themselves
+        self.assertFalse(any(v in json.dumps(r) for v in want.values()), r["facts"])
+
+    def test_fact_values_follow_the_seed_like_the_scenario_scripts(self):
+        seed = "0123456789abcdef" * 4
+        f = lambda s: pm.facts(self.g.debrief_cfg(s), seed)  # noqa: E731
+        self.assertEqual(f("retry-storm"), {"capacity_change": "CHG-6748", "retry_change": "CHG-6749"})   # init.sh: 4000 + 0xabc % 5000
+        self.assertEqual(f("dns-poison"), {"legacy_instance": "payments-old-cluster", "poisoned_ttl": "52200"})
+        self.assertEqual(f("clock-drift"), {"drift_seconds": "396", "unrelated_idp": "login.acme-hr.example"})
+        self.assertNotIn("poisoned_ttl", pm.facts(self.g.debrief_cfg("dns-poison"), "f" * 64))   # hosts.json variant
+        for text, value, hit in (("off by -396 s", "396", True), ("396s", "396", True), ("1396", "396", False),
+                                 ("rolled back CHG-4000.", "CHG-4000", True), ("CHG-40001", "CHG-4000", False)):
+            self.assertEqual(pm.quotes(text, value), hit, (text, value))
 
     def test_listing_every_cause_is_not_a_strategy(self):
         a, recovered = self.incident(user="pm-all@x")

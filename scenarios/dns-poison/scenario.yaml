@@ -100,3 +100,6 @@ debrief:
     - {id: payments_service_crashed,     kind: decoy, text: "the payments service itself crashed"}
     - {id: upstream_signing_key_rotated, kind: decoy, text: "payments rotated its response signing key"}
     - {id: fx_service_overloaded,        kind: decoy, text: "the fx service is overloaded and times out"}
+  facts:
+    - {id: legacy_instance, value: '["payments-v1", "payments-dc2", "payments-old-cluster", "payments-pre-migration"][seed[10] % 4]', text: "the instance that answered instead of payments"}
+    - {id: poisoned_ttl,    value: "3600 + seed[9] * 5400", when: "seed[6] % 2 == 0", text: "the TTL of the poisoned record, in seconds"}

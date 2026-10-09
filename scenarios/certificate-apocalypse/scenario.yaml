@@ -102,3 +102,5 @@ debrief:
     - {id: public_root_ca_expired,      kind: decoy, text: "the public root CA expired"}
     - {id: dependency_tls_failure,      kind: decoy, text: "TLS to a dependency named in the logs (cache, kafka, ldap, metrics) failed"}
     - {id: gateway_clock_skew,          kind: decoy, text: "the gateway's clock drifted, so valid certificates look expired"}
+  facts:
+    - {id: unrelated_tls_warning, value: '["redis.cache.internal", "kafka-0.mesh.internal", "ldap.corp.internal", "metrics.mesh.internal"][seed[8] % 4]', text: "the host in the unrelated TLS warning you ruled out (backend logs)"}

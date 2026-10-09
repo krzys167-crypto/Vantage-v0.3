@@ -7,6 +7,7 @@ Debrief zamyka tę lukę. Po `make submit` uczestnik pisze post-mortem i podpisu
 | Co jest sprawdzane | Względem czego | Dlaczego to trudno zgadnąć albo wygenerować |
 |---|---|---|
 | przyczyny (`causes`) | usterki, które wylosował seed **tej** próby (`generated/debrief.json`) | katalog zawiera każdy wariant usterek i wiarygodne przynęty; nazwa scenariusza nie wystarcza |
+| fakty (`facts`) | wartości, które wylosował seed tej próby: numer zmiany, TTL, dryf w sekundach, nazwa instancji | widać je tylko w dowodach (changelog, logi, ConfigMapy, odpowiedzi usług) |
 | `mitigated` | początek ostatniej nieprzerwanej serii zdrowych próbek w graderze | znacznik czasu z dowodów, nie z pamięci; tolerancja 30 s |
 | `detected` | czas `break` stemplowany przez serwer | nie da się wykryć incydentu przed jego początkiem |
 | oś czasu | okno incydentu | co najmniej 4 wpisy w kolejności, wewnątrz incydentu |
@@ -51,12 +52,20 @@ Wpisy osi czasu zaczynają się od czasu UTC (`- 07:04:30Z inventory: 8x więcej
 | `mitigated` w tolerancji (liniowo do 0 przy 10× tolerancji) | 20 |
 | `detected` między `break` a `mitigated` | 5 |
 | oś czasu | 5 |
-| sekcje | 10 |
-| działania `[prevent]` i `[detect]` | 10 |
+| fakty z dowodów zacytowane w treści | 10 |
+| sekcje | 5 |
+| działania `[prevent]` i `[detect]` | 5 |
 
-Werdykt `verified` wymaga jednocześnie trzech rzeczy: co najmniej 70 punktów, kompletu przyczyn źródłowych i zera przyczyn błędnych. Wypisanie całego katalogu daje komplet, ale nie daje `verified`. Post-mortem, który wskazuje przyczynę, której nie było, kieruje naprawę w złą stronę.
+Werdykt `verified` wymaga jednocześnie czterech rzeczy:
 
-Odpowiedź zawiera informację zwrotną: przyczyny potwierdzone, pominięte i błędne oraz błąd `mitigated` w sekundach. Wolno ją zobaczyć, bo post-mortem jest jeden na próbę, a kolejna próba ma nowy seed.
+- co najmniej 70 punktów;
+- kompletu przyczyn źródłowych;
+- zera przyczyn błędnych;
+- zacytowania co najmniej połowy faktów tej próby.
+
+Wypisanie całego katalogu daje komplet przyczyn, ale nie daje `verified`. Poprawne id przyczyn bez faktów też go nie dają: taki post-mortem dałoby się napisać bez zaglądania w dowody, na przykład z pomocą modelu AI, który zna tylko katalog. Post-mortem, który wskazuje przyczynę, której nie było, kieruje naprawę w złą stronę.
+
+Odpowiedź zawiera informację zwrotną: przyczyny potwierdzone, pominięte i błędne, błąd `mitigated` w sekundach i brakujące fakty. Brakujące fakty są podane tylko jako opis tego, czego szukać. Ich wartości nigdy nie trafiają do odpowiedzi. Wolno ją zobaczyć, bo post-mortem jest jeden na próbę, a kolejna próba ma nowy seed.
 
 ## Zasady, które chronią wynik
 
@@ -98,12 +107,22 @@ debrief:
     - {id: inventory_memory_leak, kind: decoy, text: "..."}                  # nigdy
 ```
 
+Fakty to wyrażenia nad seedem, które powtarzają `scripts/init.sh`:
+
+```yaml
+  facts:
+    - {id: capacity_change, value: "4000 + seed[10:13] % 5000", format: "CHG-{}", text: "the change that cut inventory's capacity"}
+    - {id: poisoned_ttl, value: "3600 + seed[9] * 5400", when: "seed[6] % 2 == 0", text: "..."}
+```
+
+Ewaluator jest celowo minimalny (`framework/debrief.py: seed_expr`). Obsługuje liczby, napisy, listy, `seed[i]`, `seed[a:b]`, `+ - * // %` i indeksowanie, a nic poza tym. Liczbę grader rozpoznaje także ze znakiem lub jednostką (`-396 s`, `396s`, `TTL=52200`), ale nie jako fragment innej liczby. Test `test_fact_values_follow_the_seed_like_the_scenario_scripts` pilnuje zgodności z `init.sh`.
+
 `when` używa tych samych półbajtów seeda co `scripts/init.sh`. Test `test_cause_catalogs_cover_every_seed_branch` sprawdza, że każda gałąź daje dokładnie dwie przyczyny źródłowe.
 
 W CI wzorcowy post-mortem pisze `framework/ci_postmortem.py`, odpowiednik `solution/fix.sh` (SPOILER). Przyczyny bierze z seeda, a czas naprawy z lokalnych dowodów.
 
 ## Co dalej
 
-- Ocena treści sekcji „Root cause” i „Resolution” (dziś liczy się tylko ich obecność), np. wymaganie konkretnych parametrów z dowodów, takich jak `cpu_millicores` czy TTL rekordu.
+- Fakty ukryte w prywatnym pakiecie hosted range, tak jak ukryte asercje. Dziś katalog faktów jest jawny, ale wartości zależą od seeda.
 - Recenzja koleżeńska: drugi uczestnik podpisuje ocenę post-mortemu, a ligi zespołowe liczą jakość debriefów, nie tylko MTTR.
 - Klucz uczestnika z rejestracji na platformie (WebAuthn albo SSO) zamiast trust on first use.

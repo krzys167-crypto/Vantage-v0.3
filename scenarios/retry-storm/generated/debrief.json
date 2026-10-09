@@ -45,5 +45,19 @@
       "text": "user traffic doubled for good"
     }
   ],
+  "facts": [
+    {
+      "format": "CHG-{}",
+      "id": "capacity_change",
+      "text": "the change that cut inventory's capacity",
+      "value": "4000 + seed[10:13] % 5000"
+    },
+    {
+      "format": "CHG-{}",
+      "id": "retry_change",
+      "text": "the change that made the api retry harder",
+      "value": "4001 + seed[10:13] % 5000"
+    }
+  ],
   "timeline_tolerance_s": 30
 }

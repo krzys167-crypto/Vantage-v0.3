@@ -485,6 +485,41 @@
               }
             }
           }
+        },
+        "facts": {
+          "type": "array",
+          "description": "values this seed produced that only the evidence shows; a verified post-mortem quotes at least half",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "value",
+              "text"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{2,63}$"
+              },
+              "value": {
+                "type": "string",
+                "description": "expression over seed: ints, strings, lists, seed[i], seed[a:b], + - * // %, list[index]"
+              },
+              "format": {
+                "type": "string",
+                "description": "python format string with one {}, default \"{}\""
+              },
+              "text": {
+                "type": "string",
+                "description": "what to look for; shown when the fact is missing (the value never is)"
+              },
+              "when": {
+                "type": "string",
+                "pattern": "^seed\\[\\d+\\] % \\d+ == \\d+$"
+              }
+            }
+          }
         }
       }
     }

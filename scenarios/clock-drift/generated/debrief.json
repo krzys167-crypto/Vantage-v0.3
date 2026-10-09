@@ -45,5 +45,17 @@
       "text": "auth's token TTL is too short for the request path"
     }
   ],
+  "facts": [
+    {
+      "id": "drift_seconds",
+      "text": "how many seconds the drifted clock was off",
+      "value": "180 + seed[9] * 24"
+    },
+    {
+      "id": "unrelated_idp",
+      "text": "the identity provider in the unrelated warning you ruled out",
+      "value": "[\"partner-idp.example\", \"sso.legacy.corp\", \"login.acme-hr.example\", \"idp.vendor-crm.example\"][seed[10] % 4]"
+    }
+  ],
   "timeline_tolerance_s": 30
 }

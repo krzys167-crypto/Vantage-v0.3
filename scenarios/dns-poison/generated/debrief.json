@@ -45,5 +45,18 @@
       "text": "payments rotated its response signing key"
     }
   ],
+  "facts": [
+    {
+      "id": "legacy_instance",
+      "text": "the instance that answered instead of payments",
+      "value": "[\"payments-v1\", \"payments-dc2\", \"payments-old-cluster\", \"payments-pre-migration\"][seed[10] % 4]"
+    },
+    {
+      "id": "poisoned_ttl",
+      "text": "the TTL of the poisoned record, in seconds",
+      "value": "3600 + seed[9] * 5400",
+      "when": "seed[6] % 2 == 0"
+    }
+  ],
   "timeline_tolerance_s": 30
 }

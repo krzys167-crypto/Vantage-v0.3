@@ -58,6 +58,15 @@ def semantic_errors(doc, scn_dir):
         idx = int(c["when"].split("[")[1].split("]")[0]) if c.get("when") else 0
         if idx > 63:
             errs.append(f"debrief cause {c['id']}: seed index {idx} out of range")
+    sys.path.insert(0, os.path.join(ROOT, "framework"))
+    import debrief as pm
+    for f in (doc.get("debrief") or {}).get("facts", []):
+        for seed in ("0" * 64, "f" * 64, "0123456789abcdef" * 4):
+            try:
+                str(f.get("format", "{}").format(pm.seed_expr(f["value"], seed)))
+            except (ValueError, IndexError, KeyError, TypeError, ZeroDivisionError, SyntaxError) as e:
+                errs.append(f"debrief fact {f['id']}: {e}")
+                break
     for rel in [doc["env"].get("compose"), doc["env"].get("manifests")]:
         if rel and not os.path.exists(os.path.join(scn_dir, rel)):
             errs.append(f"env file not found: {rel}")
@@ -86,6 +95,8 @@ def generated(doc):
                                "causes": [{"id": c["id"], "text": c["text"], "kind": c.get("kind", "root"),
                                            **({"when": c["when"]} if c.get("when") else {})}
                                           for c in sorted(d["causes"], key=lambda c: c["id"])]}
+        if d.get("facts"):
+            out["debrief.json"]["facts"] = d["facts"]
     return out
 
 
