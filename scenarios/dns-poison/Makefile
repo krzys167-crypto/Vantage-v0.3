@@ -12,6 +12,7 @@ help: ## list targets
 
 cluster: ## k3d only: create the local cluster (install.ps1 does this on Windows)
 	@k3d cluster list vantage >/dev/null 2>&1 || k3d cluster create vantage --agents 1 --wait
+	@bash ../../framework/k3d_preload.sh vantage
 
 up: ## per-user mutation + healthy state + start (MODE=docker|k3d)
 	@bash scripts/ctl.sh up
