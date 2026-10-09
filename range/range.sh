@@ -28,14 +28,44 @@ session_env() { # id -> exports for the scenario scripts
   SCN="$ROOT/scenarios/$SCENARIO"
 }
 
-free_svc_net() { # a /24 in k3s' service CIDR that no Service uses yet (fixed ClusterIPs)
-  local used n
+with_lock() { # serialise controllers on this host (mkdir is atomic and portable, unlike flock)
+  local lock="$SESSIONS/.lock" i
+  mkdir -p "$SESSIONS"
+  for i in $(seq 1 100); do
+    if mkdir "$lock" 2>/dev/null; then
+      local rc=0; "$@" || rc=$?
+      rmdir "$lock" 2>/dev/null || true
+      return $rc
+    fi
+    # a lock older than 60 s belongs to a crashed controller
+    [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null || true
+    sleep 0.2
+  done
+  die "could not take $lock"
+}
+
+claim_svc_net() { # id -> prints a /24 no Service uses and no other session has claimed
+  local id="$1" used n claims="$SESSIONS/.nets"
+  mkdir -p "$claims"
   used="$(kubectl --context "$KUBE_CONTEXT" get svc -A -o jsonpath='{range .items[*]}{.spec.clusterIP}{"\n"}{end}' \
           | awk -F. '{print $3}' | sort -u)"
   for n in $(seq 200 249 | shuf); do
-    grep -qx "$n" <<<"$used" || { echo "10.43.$n"; return; }
+    [[ -e "$claims/$n" ]] && continue
+    grep -qx "$n" <<<"$used" && continue
+    echo "$id" > "$claims/$n"
+    echo "10.43.$n"; return
   done
   die "no free /24 left in 10.43.200-249 for fixed ClusterIPs"
+}
+
+free_svc_net() { with_lock claim_svc_net "$1"; } # claim survives until `stop` (or a failed `start`)
+
+release_svc_net() { # id: drop every claim this session holds
+  local f
+  for f in "$SESSIONS"/.nets/*; do
+    [[ -f "$f" && "$(cat "$f")" == "$1" ]] && rm -f "$f"
+  done
+  return 0
 }
 
 trainee_kubeconfig() { # ns out
@@ -66,7 +96,8 @@ case "$cmd" in
     [[ -f "$SCN/k8s/trainee-role.yaml" ]] || die "$scenario has no k8s/trainee-role.yaml: not available as a hosted range yet"
     id="$(openssl rand -hex 4)"; dir="$SESSIONS/$id"
     mkdir -p "$dir/state" && chmod 700 "$dir"
-    net="$(free_svc_net)"
+    net="$(free_svc_net "$id")"
+    trap 'release_svc_net "$id"' ERR
     printf 'SCENARIO=%s\nUSER_ID=%s\nEDGE_PORT=%s\nVANTAGE_SVC_NET=%s\n' "$scenario" "$user" \
       "$(( 20000 + 16#${id:0:4} % 20000 ))" "$net" > "$dir/session.env"
     session_env "$id"
@@ -77,6 +108,7 @@ case "$cmd" in
     bash "$SCN/scripts/break.sh"
     trainee_kubeconfig "$VANTAGE_NS" "$dir/trainee.kubeconfig"
     log "trainee kubeconfig: $dir/trainee.kubeconfig (namespace $VANTAGE_NS)"
+    trap - ERR
     echo "$id" ;;
   grade)
     session_env "${1:?session}"
@@ -86,6 +118,7 @@ case "$cmd" in
   stop)
     session_env "${1:?session}"
     ( cd "$SCN" && bash scripts/ctl.sh down ) || true
+    release_svc_net "$1"
     log "session $1 stopped; evidence kept in $SESSIONS/$1/state/evidence" ;;
   *) die "usage: range.sh start <scenario> [user] | grade <session> | stop <session>" ;;
 esac

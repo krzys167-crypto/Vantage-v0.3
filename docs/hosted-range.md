@@ -65,7 +65,7 @@ Granice sprawdzają w CI `range/tests/trainee_{cert,clock,dns}.sh` (wspólne fun
 
 Każda sesja ma własny namespace `vr-<id>` i własny `EDGE_PORT`. Split-Brain DNS używa stałych ClusterIP (rekordy A muszą być stabilne), a te są globalne w klastrze. Dlatego kontroler przydziela każdej sesji wolną podsieć /24 z zakresu `10.43.200–249` (`VANTAGE_SVC_NET` w `session.env`). `k8s/manifests.yaml` dostaje ją przez placeholder `{{NET}}`, który framework podstawia z `scenario.env` (`render_manifests`).
 
-Przydział nie jest atomowy: dwa równoczesne `start` mogą wylosować tę samą podsieć, a wtedy drugi `apply` się nie powiedzie. Kontroler produkcyjny potrzebuje tu blokady albo rejestru podsieci.
+Przydział jest atomowy w obrębie jednego hosta kontrolera: `start` bierze blokadę (`range/.sessions/.lock`), wybiera podsieć, której nie używa żaden Service ani żadna inna sesja, i zapisuje claim w `range/.sessions/.nets/<n>`. Claim zwalnia `stop` albo nieudany `start`. Kontroler działający na kilku hostach naraz potrzebuje wspólnego rejestru (np. obiektu w klastrze) zamiast plików.
 
 ## Co to zamyka, a co nadal zostaje
 
