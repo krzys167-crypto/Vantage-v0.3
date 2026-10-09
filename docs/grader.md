@@ -33,6 +33,7 @@ Zmienne serwera:
 | `GRADER_PLATFORM_TOKEN` | brak | token kontrolera hosted range; zgłoszenie z nim ma `trust.assertions: platform` |
 | `GRADER_HIDDEN_PACKS` | brak | plik JSON `{scenario: [sha256]}` z prywatnymi pakietami ukrytych asercji |
 | `GRADER_USER_SECRET` | brak | ustawiony: próbę można założyć tylko z tokenem użytkownika wydanym przez platformę (`X-Vantage-User`, `grader/identity.py issue`); użytkownik i zespół pochodzą z tokenu |
+| `GRADER_JWKS_URL`, `GRADER_JWT_ISSUER` | brak | ustawione: tożsamość z JWT dostawcy (np. Supabase Auth), weryfikowanego kluczem publicznym z JWKS; szczegóły w [docs/identity.md](identity.md) |
 | `GRADER_DEBRIEF_TTL_S` | 86400 | ile sekund po `submit` grader przyjmuje post-mortem ([docs/debrief.md](debrief.md)) |
 
 ## Co grader gwarantuje
