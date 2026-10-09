@@ -67,6 +67,30 @@ Każda sesja ma własny namespace `vr-<id>` i własny `EDGE_PORT`. Split-Brain D
 
 Przydział nie jest atomowy: dwa równoczesne `start` mogą wylosować tę samą podsieć, a wtedy drugi `apply` się nie powiedzie. Kontroler produkcyjny potrzebuje tu blokady albo rejestru podsieci.
 
+## Prywatny pakiet ukrytych asercji
+
+Ukryte asercje każdego scenariusza są w osobnym pliku `ci/hidden.sh`. W repo leży **pakiet publiczny**: działa w trybie ćwiczeń i jest wzorem dla pakietu prywatnego.
+
+Platforma trzyma własny katalog `<pack>/<scenario>/hidden.sh`, którego nie ma w repo, i ocenia nim sesje:
+
+```bash
+export RANGE_HIDDEN_PACK=/srv/vantage/hidden-pack     # prywatne reguły, poza repo
+export RANGE_PLATFORM_TOKEN=...                       # ten sam co GRADER_PLATFORM_TOKEN
+range/range.sh grade "$id"
+```
+
+Kontrakt pakietu jest prosty. Plik jest dołączany (`source`) po bloku publicznym `ci/assertions.sh`, ma w zasięgu jego zmienne i funkcje (`j`, `svc_exec`, `$STATE`, ...). Każda reguła wywołuje `record <id> hidden <nazwa> <0|1> ""`. Liczba reguł może być inna niż w pakiecie publicznym, bo wynik liczy udział zaliczonych.
+
+`assertions.json` zawiera `hidden_pack: {source, sha256}`. Grader ufa tej informacji tylko wtedy, gdy zgłoszenie przyszło z platformy:
+
+| Zgłoszenie | `trust.assertions` | `trust.hidden` |
+|---|---|---|
+| bez tokenu platformy (uczestnik, tryb graded) | `client-reported` | `client-reported` |
+| z tokenem, pakiet spoza rejestru | `platform` | `platform, public pack` |
+| z tokenem, sha256 w `GRADER_HIDDEN_PACKS` | `platform` | `platform, private pack` |
+
+Rejestr `GRADER_HIDDEN_PACKS` to plik JSON `{"<scenario>": ["<sha256>", ...]}`. Nowa wersja pakietu wymaga dopisania jej skrótu, a stary skrót można zostawić na czas przejścia. CI (`hosted-range`) za każdym razem buduje pakiet poza repo, rejestruje go i wymaga `platform, private pack` w wyniku.
+
 ## Co to zamyka, a co nadal zostaje
 
 | Luka z `docs/grader.md` | W trybie hosted |
@@ -74,7 +98,7 @@ Przydział nie jest atomowy: dwa równoczesne `start` mogą wylosować tę samą
 | Asercje raportuje klient | Asercje uruchamia platforma, uczestnik nie ma do nich wpływu |
 | Sekret flagi jest u uczestnika | Sekret jest w `backend-pki`, poza rolą uczestnika, a `SEED` nie ma w klastrze |
 | Prober da się sfałszować na żywo | Prober jest deploymentem, którego uczestnik nie może zmienić, a agent działa na hoście platformy |
-| Ukryte asercje leżą w repo | **Nadal w repo.** Uczestnik nie może wpłynąć na ich wykonanie, ale może je przeczytać, więc wie, czego nie robić. Pełne rozwiązanie to prywatny pakiet reguł ładowany przez kontroler |
+| Ukryte asercje leżą w repo | W repo jest tylko pakiet publiczny do ćwiczeń. Kontroler ocenia pakietem prywatnym (`RANGE_HIDDEN_PACK`), którego nie ma w repo, a grader potwierdza to w wyniku |
 
 Ograniczenia obecnej wersji:
 

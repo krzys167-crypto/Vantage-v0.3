@@ -119,6 +119,15 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.7.4 bash
           k3d cluster create vantage --agents 1 --no-lb --wait
+          # private hidden pack: kept outside the repo on a real platform; here a
+          # rebuilt copy of the public one, registered with the grader by sha256
+          pack="$RUNNER_TEMP/pack"; mkdir -p "$pack/${{ matrix.scenario }}"
+          { cat "scenarios/${{ matrix.scenario }}/ci/hidden.sh"; echo "# private build $GITHUB_RUN_ID"; } > "$pack/${{ matrix.scenario }}/hidden.sh"
+          sha="$(openssl dgst -sha256 -r "$pack/${{ matrix.scenario }}/hidden.sh" | cut -d' ' -f1)"
+          echo "{\"${{ matrix.scenario }}\": [\"$sha\"]}" > "$RUNNER_TEMP/packs.json"
+          token="$(openssl rand -hex 16)"; echo "::add-mask::$token"
+          echo "RANGE_PLATFORM_TOKEN=$token" >> "$GITHUB_ENV"; echo "RANGE_HIDDEN_PACK=$pack" >> "$GITHUB_ENV"
+          GRADER_PLATFORM_TOKEN="$token" GRADER_HIDDEN_PACKS="$RUNNER_TEMP/packs.json" \
           GRADER_STABLE_WINDOW=20 nohup python grader/server.py --port 8700 --data "$RUNNER_TEMP/grader" > "$RUNNER_TEMP/grader.log" 2>&1 &
           for i in $(seq 1 20); do curl -sf http://127.0.0.1:8700/v1/pubkey >/dev/null && break; sleep 0.5; done
           curl -sf http://127.0.0.1:8700/v1/pubkey > "$RUNNER_TEMP/grader.pem"
@@ -138,6 +147,7 @@ jobs:
           bash range/range.sh grade "$SESSION" | tee "$RUNNER_TEMP/grade.log"
           grep -q "ATTESTED" "$RUNNER_TEMP/grade.log" && ! grep -q "NOT ATTESTED" "$RUNNER_TEMP/grade.log"
           grep -q "public: PASS" "$RUNNER_TEMP/grade.log"
+          grep -q "trust: assertions=platform hidden=platform, private pack" "$RUNNER_TEMP/grade.log"
           python grader/verify.py "range/.sessions/$SESSION/state/evidence/server_report.json" "$RUNNER_TEMP/grader.pem"
       - if: always()
         env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage}

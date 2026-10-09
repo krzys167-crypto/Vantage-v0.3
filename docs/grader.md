@@ -30,6 +30,8 @@ Zmienne serwera:
 |---|---|---|
 | `GRADER_STABLE_WINDOW` | 60 | okno stabilności w sekundach, liczone po stronie serwera |
 | `GRADER_SKEW_S` | 15 | tolerancja „na żywo” dla znacznika czasu próbki |
+| `GRADER_PLATFORM_TOKEN` | brak | token kontrolera hosted range; zgłoszenie z nim ma `trust.assertions: platform` |
+| `GRADER_HIDDEN_PACKS` | brak | plik JSON `{scenario: [sha256]}` z prywatnymi pakietami ukrytych asercji |
 
 ## Co grader gwarantuje
 
@@ -55,13 +57,13 @@ W przeciwnym razie ocena brzmi `unverified`: liczba punktów zostaje informacyjn
 ## Czego grader NIE gwarantuje (dopóki środowisko działa u uczestnika)
 
 - **Asercje są raportowane przez klienta.** Wyniki A1–A6 i H1–H6 liczy skrypt na maszynie uczestnika. Raport mówi to wprost (`trust.assertions: client-reported`).
-- **Ukryte asercje są w repo.** Zdeterminowany uczestnik może je przeczytać i spreparować `assertions.json`.
+- **Ukryte asercje są w repo.** W repo jest pakiet publiczny (`ci/hidden.sh`). Zdeterminowany uczestnik może go przeczytać i spreparować `assertions.json`. Prywatny pakiet działa tylko w hosted range.
 - **Prober fałszowany na żywo.** Ktoś, kto zna `flag_secret` z `.state/` i przez cały incydent streamuje w czasie rzeczywistym spreparowane próbki, przejdzie kontrole. To wymaga pracy na żywo i nie da się tego zrobić po fakcie, ale jest możliwe.
 
 Jedyne pełne rozwiązanie to środowisko, którego uczestnik nie kontroluje. Pierwszy krok jest już zrobiony: **hosted range** ([docs/hosted-range.md](hosted-range.md)) zamyka trzy pierwsze luki dla wszystkich trzech scenariuszy. Dalszy plan:
 
 1. Środowisko na infrastrukturze platformy (k3d/microVM per próba). Prober i asercje działają obok, a uczestnik dostaje tylko shell do „produkcji”.
-2. Ukryte asercje ładowane z prywatnego katalogu graderu, niepublikowane w repo.
+2. ~~Ukryte asercje ładowane z prywatnego katalogu, niepublikowane w repo.~~ Zrobione w hosted range (`RANGE_HIDDEN_PACK`, `GRADER_HIDDEN_PACKS`).
 3. `flag_secret` i klucze probera tylko w środowisku platformy, nigdy na maszynie uczestnika.
 
 Do tego czasu `attested` oznacza: **oś czasu i dowody z probera są potwierdzone przez serwer**, a nie „wszystko zweryfikowane”.

@@ -13,12 +13,17 @@ What it guarantees (see docs/grader.md for the full threat model):
     scoring config and signed with the server's ed25519 key.
 What it cannot guarantee while the environment runs on the trainee's machine:
 assertion results are client-reported, and a live forged prober is possible.
+A hosted range closes that: its controller submits with the platform token
+(GRADER_PLATFORM_TOKEN), so the result says the assertions ran on the platform,
+and with the hidden-pack registry (GRADER_HIDDEN_PACKS, JSON {scenario: [sha256]})
+it says whether the hidden checks came from a private pack.
 
 API (JSON; per-attempt bearer token returned at creation):
   POST /v1/attempts                      {user, scenario}         -> {attempt_id, seed, token}
   POST /v1/attempts/<id>/events          {type, data}             -> {ts}
   POST /v1/attempts/<id>/probes          {probes: [...]}          -> {accepted, rejected}
   POST /v1/attempts/<id>/submit          {assertions, baseline, current, mode} -> signed result
+                                         (X-Vantage-Platform: <token> from a hosted-range controller)
   GET  /v1/attempts/<id>/result                                   -> signed result
   GET  /v1/pubkey                                                 -> PEM
 """
@@ -46,6 +51,8 @@ SKEW_S = float(os.environ.get("GRADER_SKEW_S", "15"))          # live window for
 STABLE_WINDOW = float(os.environ.get("GRADER_STABLE_WINDOW", "60"))
 MAX_GAP_S = 3.0                                                 # same rule as assert_stable_window
 ATTEST_MAX_GAP_S = 10.0                                         # longest blind spot allowed for attestation
+PLATFORM_TOKEN = os.environ.get("GRADER_PLATFORM_TOKEN", "")
+HIDDEN_PACKS = os.environ.get("GRADER_HIDDEN_PACKS", "")         # JSON file {scenario: [sha256, ...]}
 SCENARIO_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
 SCHEMA = """
@@ -205,7 +212,21 @@ class Grader:
             self.db.commit()
         return 200, {"accepted": accepted, "rejected": rejected}
 
-    def submit(self, a, body):
+    @staticmethod
+    def hidden_trust(platform, scenario, pack):
+        """Who ran the hidden checks, and from which pack. Only the platform's word counts."""
+        if not platform:
+            return "client-reported"
+        allowed = []
+        if HIDDEN_PACKS:
+            try:
+                allowed = json.load(open(HIDDEN_PACKS)).get(scenario, [])
+            except (OSError, ValueError):
+                allowed = []
+        sha = str((pack or {}).get("sha256") or "")
+        return "platform, private pack" if sha and sha in allowed else "platform, public pack"
+
+    def submit(self, a, body, platform=False):
         if a["submitted"]:
             return 409, {"error": "attempt already submitted"}
         if not a["break_ts"]:
@@ -236,7 +257,8 @@ class Grader:
         try:
             client_public = bool(asr["public_pass"])
             asr = {"assertions": asr["assertions"], "hidden_pass": int(asr["hidden_pass"]),
-                   "hidden_total": int(asr["hidden_total"]), "public_pass": client_public and stable_ok}
+                   "hidden_total": int(asr["hidden_total"]), "public_pass": client_public and stable_ok,
+                   "hidden_pack": asr.get("hidden_pack") if isinstance(asr.get("hidden_pack"), dict) else None}
         except (KeyError, TypeError, ValueError):
             return 400, {"error": "assertions missing or malformed"}
         try:
@@ -260,7 +282,9 @@ class Grader:
                        "seed_prefix": a["seed"][:12], "submitted_at": now,
                        "attested": attested,
                        "trust": {"timeline": "server", "probes": "server-received live, flag-checked",
-                                 "assertions": "client-reported", "scoring_config": "server"}},
+                                 "assertions": "platform" if platform else "client-reported",
+                                 "hidden": self.hidden_trust(platform, a["scenario"], asr["hidden_pack"]),
+                                 "scoring_config": "server"}},
                       **r, integrity=integrity, assertions=asr)
         sig = self.sign(result)
         with self.lock:
@@ -285,6 +309,10 @@ def make_handler(g):
             self.end_headers()
             self.wfile.write(data)
 
+        def is_platform(self):
+            got = self.headers.get("X-Vantage-Platform") or ""
+            return bool(PLATFORM_TOKEN) and hmac.compare_digest(got.encode(), PLATFORM_TOKEN.encode())
+
         def route(self, method):
             parts = [p for p in self.path.split("?")[0].split("/") if p]
             try:
@@ -304,7 +332,7 @@ def make_handler(g):
                     action = parts[3] if len(parts) > 3 else ""
                     handlers = {("POST", "events"): lambda: g.event(a, body),
                                 ("POST", "probes"): lambda: g.probes(a, body),
-                                ("POST", "submit"): lambda: g.submit(a, body),
+                                ("POST", "submit"): lambda: g.submit(a, body, self.is_platform()),
                                 ("GET", "result"): lambda: g.result(a)}
                     if (method, action) in handlers:
                         return self.reply(*handlers[(method, action)]())
