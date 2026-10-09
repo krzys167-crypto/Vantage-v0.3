@@ -97,7 +97,7 @@ case "$cmd" in
     id="$(openssl rand -hex 4)"; dir="$SESSIONS/$id"
     mkdir -p "$dir/state" && chmod 700 "$dir"
     net="$(free_svc_net "$id")"
-    trap 'release_svc_net "$id"' ERR
+    started=0; trap '[[ $started == 1 ]] || release_svc_net "$id"' EXIT
     printf 'SCENARIO=%s\nUSER_ID=%s\nEDGE_PORT=%s\nVANTAGE_SVC_NET=%s\n' "$scenario" "$user" \
       "$(( 20000 + 16#${id:0:4} % 20000 ))" "$net" > "$dir/session.env"
     session_env "$id"
@@ -108,14 +108,19 @@ case "$cmd" in
     bash "$SCN/scripts/break.sh"
     trainee_kubeconfig "$VANTAGE_NS" "$dir/trainee.kubeconfig"
     log "trainee kubeconfig: $dir/trainee.kubeconfig (namespace $VANTAGE_NS)"
-    trap - ERR
+    started=1
     echo "$id" ;;
   grade)
     session_env "${1:?session}"
     export USER_ID
     # private hidden-assertion pack lives on the platform, never in the repo or the cluster
     [[ -n "${RANGE_PRIVATE_DIR:-}" ]] && export VANTAGE_HIDDEN_DIR="$RANGE_PRIVATE_DIR"
-    bash "$SCN/ci/assertions.sh" || true
+    # a stale result must never be graded: drop it, and treat anything but pass(0)/public-fail(1)
+    # (e.g. exit 2: configured private pack missing) as a failed grade, not as "assertions failed"
+    rm -f "$VANTAGE_STATE/assertions.json"
+    rc=0; bash "$SCN/ci/assertions.sh" || rc=$?
+    [[ $rc == 0 || $rc == 1 ]] || die "assertions aborted (exit $rc): not grading"
+    [[ -f "$VANTAGE_STATE/assertions.json" ]] || die "assertions wrote no result: not grading"
     bash "$ROOT/framework/submit.sh" "$SCN" ;;
   stop)
     session_env "${1:?session}"

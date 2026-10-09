@@ -264,6 +264,8 @@ hidden_assertions() { # scenario ci dir
   if [[ -n "${VANTAGE_HIDDEN_DIR:-}" ]]; then
     pack="$VANTAGE_HIDDEN_DIR/$scn/hidden.sh"
     [[ -f "$pack" ]] || { echo "xx no private hidden pack at $pack" >&2; exit 2; }
+    # the pack is sourced as code: refuse one anybody could have edited
+    [[ -z "$(find "$pack" -perm -0002 2>/dev/null)" ]] || { echo "xx private hidden pack is world-writable: $pack" >&2; exit 2; }
   else
     pack="$1/hidden.sh"
   fi

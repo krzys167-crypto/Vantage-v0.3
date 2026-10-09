@@ -15,6 +15,10 @@ chk() { [[ "$2" == *"$3"* ]] && echo "ok   $1" || { echo "FAIL $1: got [$2]"; fa
 out="$(run)";                                     chk default-uses-repo-pack "$out" "ran public pack"
 out="$(VANTAGE_HIDDEN_DIR="$T/priv" run)";        chk private-pack-wins      "$out" "ran private pack"
 [[ "$out" != *"ran public pack"* ]] || { echo "FAIL private pack must replace, not add"; fail=1; }
+chmod o+w "$T/priv/demo/hidden.sh"
+out="$(VANTAGE_HIDDEN_DIR="$T/priv" run)";        chk world-writable-pack-rejected "$out" "world-writable"
+[[ "$out" != *"ran private pack"* ]] || { echo "FAIL ran a world-writable pack"; fail=1; }
+chmod o-w "$T/priv/demo/hidden.sh"
 rm "$T/priv/demo/hidden.sh"
 out="$(VANTAGE_HIDDEN_DIR="$T/priv" run)"; rc=$?
 chk missing-private-pack-errors "$out" "no private hidden pack"
