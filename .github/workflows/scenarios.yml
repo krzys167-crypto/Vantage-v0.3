@@ -84,7 +84,9 @@ jobs:
         env:
           SEED: ${{ matrix.seed }}
           USER_ID: ci@vantage
-        run: make ci
+        run: set -o pipefail; make ci 2>&1 | tee "$RUNNER_TEMP/ci.log"
+      - if: failure()
+        run: bash framework/ci_annotate.sh "$RUNNER_TEMP/ci.log" "docker ${{ matrix.scenario }} failed"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -112,14 +114,31 @@ jobs:
           kubectl get nodes
       - name: self-test (MODE=k3d)
         working-directory: scenarios/${{ matrix.scenario }}
+        # a healthy run takes ~2 min; a hang must fail fast and leave evidence
+        timeout-minutes: 10
         env:
           MODE: k3d
           KUBE_CONTEXT: k3d-vantage
           SEED: ${{ matrix.seed }}
           USER_ID: ci@vantage
-        run: make ci
+        run: set -o pipefail; make ci 2>&1 | tee "$RUNNER_TEMP/ci.log"
       - if: failure()
-        run: kubectl get all,events -A -o wide | grep -E "vantage|NAME" || true
+        run: |
+          bash framework/ci_annotate.sh "$RUNNER_TEMP/ci.log" "k3d ${{ matrix.scenario }} failed"
+          kubectl get all,events -A -o wide | grep -E "vantage|NAME" || true
+          for d in $(kubectl get deploy -A --no-headers 2>/dev/null | awk '$1 != "kube-system" {print $1 "/" $2}'); do
+            echo "=== $d"; kubectl -n "${d%/*}" logs "deploy/${d#*/}" --tail=40 2>&1 || true
+          done > "$RUNNER_TEMP/k3d-logs.txt"
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k3d-failure-${{ matrix.scenario }}-${{ matrix.seed }}
+          path: |
+            ${{ runner.temp }}/ci.log
+            ${{ runner.temp }}/k3d-logs.txt
+            scenarios/${{ matrix.scenario }}/.state/evidence/
+            !scenarios/${{ matrix.scenario }}/.state/evidence/signing.key
+          if-no-files-found: ignore
 
   # hosted range: platform runs the scenario, trainee only gets a scoped kubeconfig
   hosted-range:
