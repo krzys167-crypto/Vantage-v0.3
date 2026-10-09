@@ -111,6 +111,7 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.7.4 bash
           k3d cluster create vantage --agents 1 --no-lb --wait
+          bash framework/k3d_preload.sh vantage    # pods never pull from the registry themselves
           kubectl get nodes
       - name: self-test (MODE=k3d)
         working-directory: scenarios/${{ matrix.scenario }}
@@ -158,6 +159,7 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.7.4 bash
           k3d cluster create vantage --agents 1 --no-lb --wait
+          bash framework/k3d_preload.sh vantage
           # private hidden pack: kept outside the repo on a real platform; here a
           # rebuilt copy of the public one, registered with the grader by sha256
           pack="$RUNNER_TEMP/pack"; mkdir -p "$pack/${{ matrix.scenario }}"
