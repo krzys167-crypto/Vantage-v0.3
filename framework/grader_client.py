@@ -53,9 +53,14 @@ def die(msg):
 
 def create(state, scenario, user):
     import time
-    code, a = call("POST", "/v1/attempts", {"scenario": scenario, "user": user, "client_time": time.time()})
+    # on a platform grader the user comes from a token the platform issued (SSO / range controller)
+    tok = os.environ.get("VANTAGE_USER_TOKEN")
+    code, a = call("POST", "/v1/attempts", {"scenario": scenario, "user": user, "client_time": time.time()},
+                   headers={"X-Vantage-User": tok} if tok else None)
     if code != 201:
         die(f"cannot start attempt ({code}): {a.get('error')}")
+    if a.get("identity"):
+        sys.stderr.write(f"grader: attempt {a['attempt_id']} for {a['user']} ({a['identity']})\n")
     with open(os.path.join(state, "attempt.json"), "w") as f:
         json.dump(a, f)
     os.chmod(os.path.join(state, "attempt.json"), 0o600)

@@ -25,6 +25,7 @@ claimed recovery time against the probe stream, and signs the verdict.
 
 API (JSON; per-attempt bearer token returned at creation):
   POST /v1/attempts                      {user, scenario}         -> {attempt_id, seed, token}
+                                         (X-Vantage-User: <platform token>, required with GRADER_USER_SECRET)
   POST /v1/attempts/<id>/events          {type, data}             -> {ts}
   POST /v1/attempts/<id>/probes          {probes: [...]}          -> {accepted, rejected}
   POST /v1/attempts/<id>/submit          {assertions, baseline, current, mode} -> signed result
@@ -56,6 +57,7 @@ import urllib.parse
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "framework"))
 import debrief as pm  # noqa: E402
+import identity  # noqa: E402
 import league  # noqa: E402
 from scoring import compute, recovery  # noqa: E402
 
@@ -65,6 +67,7 @@ MAX_GAP_S = 3.0                                                 # same rule as a
 ATTEST_MAX_GAP_S = 10.0                                         # longest blind spot allowed for attestation
 PLATFORM_TOKEN = os.environ.get("GRADER_PLATFORM_TOKEN", "")
 HIDDEN_PACKS = os.environ.get("GRADER_HIDDEN_PACKS", "")         # JSON file {scenario: [sha256, ...]}
+USER_SECRET = os.environ.get("GRADER_USER_SECRET", "")           # set: users come from platform tokens only
 DEBRIEF_TTL_S = float(os.environ.get("GRADER_DEBRIEF_TTL_S", "86400"))  # post-mortem deadline after submit
 SCENARIO_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
@@ -76,6 +79,7 @@ CREATE TABLE IF NOT EXISTS events (attempt TEXT, ts REAL, type TEXT, data TEXT);
 CREATE TABLE IF NOT EXISTS probes (
   attempt TEXT, recv REAL, ts REAL, ok INTEGER, claimed_ok INTEGER, lat_ms REAL, flag_ok INTEGER, err TEXT);
 CREATE TABLE IF NOT EXISTS rejects (attempt TEXT, recv REAL, ts REAL, reason TEXT);
+CREATE TABLE IF NOT EXISTS identities (attempt TEXT PRIMARY KEY, source TEXT, team TEXT);
 CREATE TABLE IF NOT EXISTS authors (user TEXT PRIMARY KEY, key_sha TEXT, pubkey TEXT, first_seen REAL);
 CREATE TABLE IF NOT EXISTS debriefs (attempt TEXT PRIMARY KEY, received REAL, markdown TEXT, result TEXT, signature TEXT);
 """
@@ -163,6 +167,10 @@ class Grader:
         with open(path) as f:
             return json.load(f)
 
+    def identity_of(self, aid):
+        row = self.db.execute("SELECT source, team FROM identities WHERE attempt=?", (aid,)).fetchone()
+        return row or ("self-declared", None)       # attempts from before identities existed
+
     def debrief_cfg(self, scenario):
         path = os.path.join(self.scenarios_dir, scenario, "generated", "debrief.json")
         if not SCENARIO_RE.match(scenario) or not os.path.exists(path):
@@ -171,9 +179,19 @@ class Grader:
             return json.load(f)
 
     # --- API -----------------------------------------------------------------
-    def create(self, body):
+    def create(self, body, user_token=None):
         scenario = str(body.get("scenario", ""))
         self.scoring_cfg(scenario)  # validates the scenario exists
+        if USER_SECRET:
+            if not user_token:
+                return 401, {"error": "this grader needs a platform user token (X-Vantage-User)"}
+            try:
+                claims = identity.verify(USER_SECRET, user_token)
+            except PermissionError as e:
+                return 401, {"error": str(e)}
+            user, team, source = claims["sub"], claims.get("team"), "platform token"
+        else:
+            user, team, source = str(body.get("user", "anonymous"))[:200], None, "self-declared"
         aid, token = secrets.token_hex(8), secrets.token_urlsafe(24)
         seed = hmac.new(self.seed_secret, f"{aid}:{scenario}".encode(), hashlib.sha256).hexdigest()
         now = time.time()
@@ -188,10 +206,11 @@ class Grader:
         with self.lock:
             self.db.execute("INSERT INTO attempts (id, user, scenario, seed, token_sha, created, clock_offset) "
                             "VALUES (?,?,?,?,?,?,?)",
-                            (aid, str(body.get("user", "anonymous"))[:200], scenario, seed,
-                             hashlib.sha256(token.encode()).hexdigest(), now, offset))
+                            (aid, user, scenario, seed, hashlib.sha256(token.encode()).hexdigest(), now, offset))
+            self.db.execute("INSERT INTO identities VALUES (?,?,?)", (aid, source, team))
             self.db.commit()
-        return 201, {"attempt_id": aid, "seed": seed, "token": token, "clock_offset_s": round(offset, 3)}
+        return 201, {"attempt_id": aid, "seed": seed, "token": token, "clock_offset_s": round(offset, 3),
+                     "user": user, "identity": source}
 
     def event(self, a, body):
         etype = str(body.get("type", ""))
@@ -317,7 +336,9 @@ class Grader:
         result = dict({"attempt_id": a["id"], "user": a["user"], "scenario": a["scenario"],
                        "seed_prefix": a["seed"][:12], "submitted_at": now,
                        "attested": attested,
-                       "trust": {"timeline": "server", "probes": "server-received live, flag-checked",
+                       "team": self.identity_of(a["id"])[1],
+                       "trust": {"identity": self.identity_of(a["id"])[0],
+                                 "timeline": "server", "probes": "server-received live, flag-checked",
                                  "assertions": "platform" if platform else "client-reported",
                                  "hidden": self.hidden_trust(platform, a["scenario"], asr["hidden_pack"]),
                                  "scoring_config": "server"}},
@@ -371,18 +392,22 @@ class Grader:
         with self.lock:
             if self.db.execute("SELECT 1 FROM debriefs WHERE attempt=?", (a["id"],)).fetchone():
                 return 409, {"error": "post-mortem already recorded (one per attempt)"}
-            # Trust on first use: a user's first post-mortem binds their key.
+            # Trust on first use: a user's first post-mortem binds their key, but only
+            # for users the platform vouched for; a self-declared name could be anyone's.
+            vouched = self.identity_of(a["id"])[0] == "platform token"
             known = self.db.execute("SELECT key_sha FROM authors WHERE user=?", (a["user"],)).fetchone()
-            if known and known[0] != key_sha:
+            if vouched and known and known[0] != key_sha:
                 return 403, {"error": f"user {a['user']} signs post-mortems with another key"}
-            if not known:
+            if vouched and not known:
                 self.db.execute("INSERT INTO authors VALUES (?,?,?,?)", (a["user"], key_sha, pub, now))
+            author = ("user key, bound on first use" + ("" if known else " (bound now)") if vouched
+                      else "self-declared user: key checked, not bound")
             result = dict({"kind": "debrief", "attempt_id": a["id"], "user": a["user"], "scenario": a["scenario"],
                            "received_at": now, "author_key_sha256": key_sha,
                            "postmortem_sha256": hashlib.sha256(md.encode()).hexdigest(),
                            "attempt_result_sha256": hashlib.sha256(canonical(attempt_result)).hexdigest(),
                            "attempt_tier": attempt_result.get("tier"),
-                           "trust": {"author": "user key, bound on first use" + ("" if known else " (bound now)"),
+                           "trust": {"author": author,
                                      "timeline": "server probes",
                                      "causes": "local run: fault variants were readable on the trainee's machine"
                                                if local else "platform: the seed never left the range"}},
@@ -394,9 +419,13 @@ class Grader:
         return 200, {"result": result, "signature": sig_out, "alg": "ed25519", "signed": "canonical JSON of result"}
 
     def history(self):
-        attempts = [{"id": r[0], "user": r[1], "scenario": r[2], "submitted": r[3], "result": json.loads(r[4])}
-                    for r in self.db.execute("SELECT id, user, scenario, submitted, result FROM attempts "
-                                             "WHERE submitted IS NOT NULL")]
+        rows = self.db.execute("SELECT a.id, a.user, a.scenario, a.submitted, a.result, i.source, i.team "
+                               "FROM attempts a LEFT JOIN identities i ON i.attempt = a.id "
+                               "WHERE a.submitted IS NOT NULL")
+        attempts = [{"id": r[0], "user": r[1], "scenario": r[2], "submitted": r[3], "result": json.loads(r[4]),
+                     "team": r[6]} for r in rows
+                    # once the platform vouches for users, self-declared names no longer count
+                    if not USER_SECRET or r[5] == "platform token"]
         debriefs = {r[0]: json.loads(r[1]) for r in self.db.execute("SELECT attempt, result FROM debriefs")}
         return attempts, debriefs
 
@@ -444,7 +473,7 @@ def make_handler(g):
                 if parts == ["v1", "pubkey"] and method == "GET":
                     return self.reply(200, g.pubkey, "application/x-pem-file")
                 if parts == ["v1", "attempts"] and method == "POST":
-                    return self.reply(*g.create(body))
+                    return self.reply(*g.create(body, self.headers.get("X-Vantage-User")))
                 if len(parts) == 4 and parts[:2] == ["v1", "users"] and parts[3] == "profile" and method == "GET":
                     return self.reply(*g.profile(urllib.parse.unquote(parts[2])))
                 if parts == ["v1", "league"] and method == "GET":

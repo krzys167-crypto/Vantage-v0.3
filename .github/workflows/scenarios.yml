@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python -m unittest grader/test_grader.py grader/test_league.py -v
+      - run: python -m unittest grader/test_grader.py grader/test_league.py grader/test_identity.py -v
       # controller logic that needs no cluster: subnet claims under concurrency, unusable private packs
       - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh
 

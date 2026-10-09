@@ -44,5 +44,6 @@ Profil i tabela to dokumenty podpisane przez grader (`kind: profile` i `kind: le
 
 ## Granice
 
-- **Tożsamość.** `POST /v1/attempts` przyjmuje `user` bez uwierzytelnienia. Ktoś może więc rozwiązywać próby pod cudzym nazwiskiem: to tylko „pomaga” właścicielowi, bo liczy się najlepszy wynik. Może też jako pierwszy związać swój klucz post-mortemów z cudzym użytkownikiem (trust on first use). Platforma produkcyjna potrzebuje logowania (SSO lub WebAuthn) przed `create`.
-- **Liga zespołowa** (suma najlepszych wyników członków zespołu, ranking według mediany MTTR) jest następnym krokiem. Wymaga przypisania użytkowników do zespołów, czyli tej samej warstwy tożsamości.
+- **Tożsamość.** Bez `GRADER_USER_SECRET` pole `user` przy zakładaniu próby jest deklaracją. Taka próba nie wiąże klucza post-mortemów (`trust.author: self-declared user: key checked, not bound`), więc nie da się przejąć cudzego klucza. Gdy grader ma `GRADER_USER_SECRET`, użytkownika i zespół bierze tylko z tokenu wydanego przez platformę (`grader/identity.py issue <user> --team <t>`, nagłówek `X-Vantage-User`, ważność do 7 dni). Profile i liga liczą wtedy wyłącznie próby poświadczone tokenem. Wynik próby ma `trust.identity` i `team`. Kontroler hosted range sam wydaje token dla `range.sh start <scenario> <user>`, jeśli zna sekret, a zespół bierze z `RANGE_TEAM`.
+- **Liga zespołowa.** `league.teams` w odpowiedzi `/v1/league` sumuje punkty członków zespołu z tokenów, a remisy rozstrzyga mediana MTTR. Zespół to zespół z tokenu najnowszej próby gracza w danym miesiącu.
+- **SSO.** Kolejny krok to tokeny z dostawcy tożsamości (np. JWT z JWKS) zamiast współdzielonego sekretu HMAC.

@@ -11,7 +11,8 @@
 #                                         (they sign it: framework/postmortem.py sign)
 #
 # Needs: kubectl with an admin context ($KUBE_CONTEXT, default k3d-vantage),
-# GRADER_URL (the grader), python3, openssl. Optional: RANGE_PLATFORM_TOKEN
+# GRADER_URL (the grader), python3, openssl. Optional: GRADER_USER_SECRET (issue
+# the user's identity token here) or VANTAGE_USER_TOKEN, RANGE_TEAM, RANGE_PLATFORM_TOKEN
 # (shared with the grader's GRADER_PLATFORM_TOKEN) and RANGE_HIDDEN_PACK (a
 # private directory <pack>/<scenario>/hidden.sh). The scenario must ship
 # k8s/trainee-role.yaml and may ship scripts/range_trainee_objects.sh.
@@ -109,6 +110,11 @@ case "$cmd" in
       "$(( 20000 + 16#${id:0:4} % 20000 ))" "$net" > "$dir/session.env"
     session_env "$id"
     export USER_ID="$user"
+    # the controller is the platform: it vouches for the user when the grader requires it
+    if [[ -z "${VANTAGE_USER_TOKEN:-}" && -n "${GRADER_USER_SECRET:-}" ]]; then
+      VANTAGE_USER_TOKEN="$("$PY" "$ROOT/grader/identity.py" issue "$user" ${RANGE_TEAM:+--team "$RANGE_TEAM"} --ttl-h 2)"
+      export VANTAGE_USER_TOKEN
+    fi
     log "session $id: $scenario for $user in namespace $VANTAGE_NS"
     bash "$SCN/scripts/ctl.sh" up >/dev/null
     [[ -x "$SCN/scripts/range_trainee_objects.sh" ]] && bash "$SCN/scripts/range_trainee_objects.sh"

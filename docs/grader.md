@@ -32,6 +32,7 @@ Zmienne serwera:
 | `GRADER_SKEW_S` | 15 | tolerancja „na żywo” dla znacznika czasu próbki |
 | `GRADER_PLATFORM_TOKEN` | brak | token kontrolera hosted range; zgłoszenie z nim ma `trust.assertions: platform` |
 | `GRADER_HIDDEN_PACKS` | brak | plik JSON `{scenario: [sha256]}` z prywatnymi pakietami ukrytych asercji |
+| `GRADER_USER_SECRET` | brak | ustawiony: próbę można założyć tylko z tokenem użytkownika wydanym przez platformę (`X-Vantage-User`, `grader/identity.py issue`); użytkownik i zespół pochodzą z tokenu |
 | `GRADER_DEBRIEF_TTL_S` | 86400 | ile sekund po `submit` grader przyjmuje post-mortem ([docs/debrief.md](debrief.md)) |
 
 ## Co grader gwarantuje

@@ -53,8 +53,8 @@ class GraderTest(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
 
-    def start(self, scenario="certificate-apocalypse", user="t@x"):
-        code, a = self.call("POST", "/v1/attempts", {"user": user, "scenario": scenario})
+    def start(self, scenario="certificate-apocalypse", user="t@x", headers=None):
+        code, a = self.call("POST", "/v1/attempts", {"user": user, "scenario": scenario}, headers=headers)
         self.assertEqual(code, 201)
         a["host"] = f"api-{a['seed'][:6]}.vantage.local"
         a["flag"] = server.expected_flag(a["seed"], a["host"])
@@ -85,9 +85,9 @@ class GraderTest(unittest.TestCase):
         pub = subprocess.run(["openssl", "pkey", "-in", path, "-pubout"], check=True, capture_output=True, text=True)
         return path, pub.stdout
 
-    def incident(self, scenario="retry-storm", user="t@x"):
+    def incident(self, scenario="retry-storm", user="t@x", headers=None):
         """Graded attempt that fails for a moment, then recovers; returns (attempt, recovery time)."""
-        a = self.start(scenario, user)
+        a = self.start(scenario, user, headers)
         self.ev(a, "break", {"host": a["host"]})
         self.live(a, 3, ok=False, dt=0.3)
         recovered = time.time()
@@ -243,8 +243,9 @@ Reverted both changes.
         self.assertEqual(self.send_pm(b, self.postmortem(b, ["traffic_burst"], time.time()), key)[0], 200)
 
     def test_postmortem_key_is_bound_to_the_user(self):
-        a, rec = self.incident(user="pm-key@x")
-        b, rec_b = self.incident(user="pm-key@x")
+        tok = self.with_identities()          # only users the platform vouches for get a bound key
+        a, rec = self.incident(headers=tok("pm-key@x"))
+        b, rec_b = self.incident(headers=tok("pm-key@x"))
         self.assertEqual(self.send_pm(a, self.postmortem(a, ["traffic_burst"], rec), self.user_key())[0], 200)
         code, res = self.send_pm(b, self.postmortem(b, ["traffic_burst"], rec_b), self.user_key())
         self.assertEqual(code, 403, res)
@@ -278,6 +279,56 @@ Reverted both changes.
         self.assertIn(league.alias(user), rows)
         self.assertNotIn(user, json.dumps(res))
         self.assertEqual(self.call("GET", "/v1/league?season=oct")[0], 400)
+
+    def with_identities(self):
+        """Run the rest of a test against a grader that requires platform user tokens."""
+        server.USER_SECRET = "user-secret"
+        self.addCleanup(setattr, server, "USER_SECRET", "")
+        import identity
+        return lambda user, team=None: {"X-Vantage-User": identity.issue("user-secret", user, team)}
+
+    def start_as(self, headers, scenario="retry-storm", user="claimed@x"):
+        return self.call("POST", "/v1/attempts", {"user": user, "scenario": scenario}, headers=headers)
+
+    def test_platform_identity_decides_who_the_attempt_belongs_to(self):
+        tok = self.with_identities()
+        self.assertEqual(self.start_as(None)[0], 401)
+        self.assertEqual(self.start_as({"X-Vantage-User": "forged.token"})[0], 401)
+        import identity
+        expired = identity.issue("user-secret", "jan@x", now=1000)
+        self.assertEqual(self.start_as({"X-Vantage-User": expired})[0], 401)
+        code, a = self.start_as(tok("jan@x", "sre-waw"), user="ceo@x")      # the body's user is ignored
+        self.assertEqual(code, 201, a)
+        self.assertEqual((a["user"], a["identity"]), ("jan@x", "platform token"))
+        a["host"] = f"api-{a['seed'][:6]}.vantage.local"
+        a["flag"] = server.expected_flag(a["seed"], a["host"])
+        self.ev(a, "break", {"host": a["host"]})
+        self.live(a, 12, ok=True, flag=a["flag"], dt=0.4)
+        r = self.submit(a)[1]["result"]
+        self.assertEqual((r["user"], r["team"], r["trust"]["identity"]), ("jan@x", "sre-waw", "platform token"))
+
+    def test_self_declared_names_cannot_squat_a_post_mortem_key(self):
+        # without identities an attacker starts an attempt as the victim and signs with their own key
+        a, rec = self.incident(user="victim@x")
+        r = self.send_pm(a, self.postmortem(a, ["traffic_burst"], rec), self.user_key())[1]["result"]
+        self.assertIn("not bound", r["trust"]["author"])
+        # once the platform vouches for the victim, their own key binds without a fight
+        tok = self.with_identities()
+        code, b = self.start_as(tok("victim@x"))
+        self.assertEqual(code, 201, b)
+        b["host"] = f"api-{b['seed'][:6]}.vantage.local"
+        b["flag"] = server.expected_flag(b["seed"], b["host"])
+        self.ev(b, "break", {"host": b["host"]})
+        self.live(b, 3, ok=False, dt=0.3)
+        rec_b = time.time()
+        self.live(b, 12, ok=True, flag=b["flag"], dt=0.3)
+        self.assertEqual(self.submit(b)[0], 200)
+        code, res = self.send_pm(b, self.postmortem(b, ["traffic_burst"], rec_b), self.user_key())
+        self.assertEqual(code, 200, res)
+        self.assertIn("bound now", res["result"]["trust"]["author"])
+        # and self-declared attempts no longer count on the league or profile
+        p = self.call("GET", "/v1/users/victim%40x/profile")[1]["result"]
+        self.assertEqual(p["scenarios"]["retry-storm"]["attempts"], 1)
 
     def test_cause_catalogs_cover_every_seed_branch(self):
         for scn in ("certificate-apocalypse", "clock-drift", "dns-poison", "retry-storm"):
