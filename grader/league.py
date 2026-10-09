@@ -129,4 +129,31 @@ def league(month, attempts, debriefs):
         u["rank"], u["points"] = i, round(u["points"], 1)
         del u["since"]
     return {"kind": "league", "season": month, "generated_at": time.time(), "rows": rows,
-            "rules": "best attested score per scenario + %d per scenario with a verified post-mortem" % DEBRIEF_POINTS}
+            "teams": teams(month, attempts, debriefs, {u: r["points"] for u, r in users.items()}),
+            "rules": "best attested score per scenario + %d per scenario with a verified post-mortem; "
+                     "teams: sum of members' points, ties broken by median MTTR" % DEBRIEF_POINTS}
+
+
+def teams(month, attempts, debriefs, points):
+    """Team table: a team is only as good as all of its members' recoveries."""
+    team_of, mttrs = {}, {}
+    for a in sorted(attempts, key=lambda a: a["submitted"]):
+        if season(a["submitted"]) != month or not a.get("team"):
+            continue
+        team_of[a["user"]] = a["team"]                      # the latest team a user played for this month
+        m = (a["result"].get("sli") or {}).get("mttr_s")
+        if passed(a["result"]) and m is not None:
+            mttrs.setdefault(a["team"], []).append(m)
+    out = {}
+    for user, team in team_of.items():
+        t = out.setdefault(team, {"team": team, "points": 0.0, "members": 0})
+        t["points"] += points.get(user, 0.0)
+        t["members"] += 1
+    for name, t in out.items():
+        ms = sorted(mttrs.get(name, []))
+        t["median_mttr_s"] = round(ms[len(ms) // 2], 1) if ms else None
+        t["points"] = round(t["points"], 1)
+    rows = sorted(out.values(), key=lambda t: (-t["points"], t["median_mttr_s"] if t["median_mttr_s"] is not None else 1e9))
+    for i, t in enumerate(rows, 1):
+        t["rank"] = i
+    return rows
