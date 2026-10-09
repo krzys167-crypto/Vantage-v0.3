@@ -80,6 +80,11 @@ Odznaki (`surgeon`, `coroner`, `range_certified` i inne) oraz miesięczna liga l
 Każda odznaka wskazuje próbę, której podpisany wynik można zweryfikować. Liga pokazuje tylko aliasy.
 `python framework/grader_client.py profile <user>` / `league`. Szczegóły: [docs/league.md](docs/league.md).
 
+## Panel WWW i wdrożenie
+
+`range/api.py` z `range/panel/index.html` to panel dla uczestnika: logowanie przez Supabase, start incydentu, kubeconfig, ocena, profil i liga.
+`deploy/install.sh` stawia całość (grader, panel, k3d, HTTPS) na jednej maszynie z Ubuntu jedną komendą. Szczegóły: [docs/deploy.md](docs/deploy.md).
+
 ## Tożsamość
 
 Grader może wymagać zalogowanego użytkownika: JWT od dostawcy (np. Supabase Auth, weryfikowany przez JWKS) albo token platformy.
