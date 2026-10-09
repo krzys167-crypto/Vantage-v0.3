@@ -43,9 +43,9 @@ traffic:
 assertions:
   public:
     - {id: A1, type: token_issued}
-    - {id: A2, type: api_accepts_token, expect: {status: 200, header: X-Vantage-Flag}}
-    - {id: A3, type: clocks_in_sync, max_offset_s: 2}
-    - {id: A4, type: active_kid_trusted}
+    - {id: A2, type: api_accepts_token, expect: {status: 200, header: X-Vantage-Flag}, detects: [time_skew, jwt_key_rotation_partial]}
+    - {id: A3, type: clocks_in_sync, max_offset_s: 2, detects: [time_skew]}
+    - {id: A4, type: active_kid_trusted, detects: [jwt_key_rotation_partial]}
     - {id: A5, type: health_stable_Ns, window_s: 60}
     - {id: A6, type: log_absence, service: api, pattern: "reject 401"}
   hidden:

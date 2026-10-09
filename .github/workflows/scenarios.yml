@@ -12,6 +12,7 @@ jobs:
       - run: pip install pyyaml jsonschema
       # schema + semantic checks, and generated/ must match scenario.yaml
       - run: python dsl/validate.py --check
+      - run: python -m unittest dsl/test_lint.py -v
 
   grader-unit:
     runs-on: ubuntu-latest

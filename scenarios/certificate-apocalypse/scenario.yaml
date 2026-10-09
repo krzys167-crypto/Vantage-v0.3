@@ -44,20 +44,20 @@ traffic:
 
 assertions:
   public:
-    - {id: A1, type: tls_handshake_ok,  trust: public-root}
-    - {id: A2, type: x509_not_expired}
-    - {id: A3, type: x509_chain_ok,     min_chain: 2}
+    - {id: A1, type: tls_handshake_ok,  trust: public-root, detects: [tls_cert_expired, x509_chain_incomplete]}
+    - {id: A2, type: x509_not_expired, detects: [tls_cert_expired]}
+    - {id: A3, type: x509_chain_ok,     min_chain: 2, detects: [x509_chain_incomplete]}
     - {id: A4, type: san_matches_host}
     - {id: A5, type: key_matches_cert}
-    - {id: A6, type: mtls_trust_ok,     expect: {status: 200, header: X-Vantage-Flag}}
+    - {id: A6, type: mtls_trust_ok,     expect: {status: 200, header: X-Vantage-Flag}, detects: [invalid_truststore, mtls_client_cert_expired]}
     - {id: A7, type: health_stable_Ns,  window_s: 60}
     - {id: A8, type: log_absence,       service: gateway, pattern: "SSL_do_handshake|certificate verify|upstream SSL"}
   hidden:        # only id + pass/fail reach the trainee
     - {id: H1, type: validity_window,   min_days_left: 30, max_lifetime_days: 398}
     - {id: H2, type: key_strength,      ec_min: 256, rsa_min: 2048}
-    - {id: H3, type: upstream_verify_on, security_critical: true}
+    - {id: H3, type: upstream_verify_on, security_critical: true, detects: [invalid_truststore]}
     - {id: H4, type: flag_authentic}
-    - {id: H5, type: backend_requires_client_cert, security_critical: true}
+    - {id: H5, type: backend_requires_client_cert, security_critical: true, detects: [invalid_truststore]}
     - {id: H6, type: san_minimal}
 
 scoring:
