@@ -5,10 +5,10 @@ PY ?= $(shell command -v python3 || command -v python)
 export MODE ?= docker
 export KUBE_CONTEXT ?= k3d-vantage
 
-.PHONY: help cluster up break status logs call metrics apply hint assert score submit down clean fix ci
+.PHONY: help cluster up break status logs call metrics apply hint assert score submit postmortem lint-postmortem debrief down clean fix ci
 
 help: ## list targets
-	@grep -hE '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-15s %s\n", $$1, $$2}'
 
 cluster: ## k3d only: create the local cluster (install.ps1 does this on Windows)
 	@k3d cluster list vantage >/dev/null 2>&1 || k3d cluster create vantage --agents 1 --wait
@@ -45,6 +45,16 @@ score: assert ## assertions + score + signed report
 
 submit: assert ## graded run (GRADER_URL set): server scores and signs
 	@bash ../../framework/submit.sh .
+
+PM ?= postmortem.md
+postmortem: ## after submit: post-mortem template for this attempt (postmortem.md), cause catalog inside
+	@$(PY) ../../framework/postmortem.py template . $(PM)
+
+lint-postmortem: ## check postmortem.md against the grader's format rules (free, nothing is sent)
+	@$(PY) ../../framework/postmortem.py lint . $(PM)
+
+debrief: ## sign postmortem.md with your key and send it: checked against the evidence, once per attempt
+	@$(PY) ../../framework/postmortem.py submit . $(PM)
 
 fix: ## SPOILER: reference solution
 	@bash solution/fix.sh

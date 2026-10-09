@@ -43,6 +43,19 @@ jobs:
           make ci | tee "$RUNNER_TEMP/ci.log"
           grep -q "ATTESTED" "$RUNNER_TEMP/ci.log" && ! grep -q "NOT ATTESTED" "$RUNNER_TEMP/ci.log"
           python ../../grader/verify.py .state/evidence/server_report.json "$RUNNER_TEMP/grader.pem"
+      - name: post-mortem (signed by the trainee, checked against the evidence)
+        working-directory: scenarios/${{ matrix.scenario }}
+        env:
+          GRADER_URL: http://127.0.0.1:8700
+          VANTAGE_USER_KEY: ${{ runner.temp }}/user.key
+        run: |
+          make postmortem && make lint-postmortem && exit 1 || true    # an empty template must not pass
+          python ../../framework/ci_postmortem.py . postmortem.md
+          make lint-postmortem
+          make debrief | tee "$RUNNER_TEMP/debrief.log"
+          grep -q "VERIFIED" "$RUNNER_TEMP/debrief.log"
+          python ../../grader/verify.py .state/evidence/debrief_report.json "$RUNNER_TEMP/grader.pem"
+          ! make debrief                                                # one per attempt
       - if: failure()
         run: cat "$RUNNER_TEMP/grader.log" | tail -50
 
@@ -150,6 +163,16 @@ jobs:
           grep -q "public: PASS" "$RUNNER_TEMP/grade.log"
           grep -q "trust: assertions=platform hidden=platform, private pack" "$RUNNER_TEMP/grade.log"
           python grader/verify.py "range/.sessions/$SESSION/state/evidence/server_report.json" "$RUNNER_TEMP/grader.pem"
+      - name: post-mortem (trainee signs, platform forwards)
+        env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage, VANTAGE_USER_KEY: "${{ runner.temp }}/user.key"}
+        run: |
+          bash range/range.sh postmortem "$SESSION" | grep -q "^attempt: "
+          VANTAGE_STATE="range/.sessions/$SESSION/state" python framework/ci_postmortem.py scenarios/${{ matrix.scenario }} "$RUNNER_TEMP/pm.md"
+          python framework/postmortem.py lint scenarios/${{ matrix.scenario }} "$RUNNER_TEMP/pm.md"
+          python framework/postmortem.py sign "$RUNNER_TEMP/pm.md" "$RUNNER_TEMP/bundle.json"
+          bash range/range.sh debrief "$SESSION" "$RUNNER_TEMP/bundle.json" | tee "$RUNNER_TEMP/debrief.log"
+          grep -q "VERIFIED" "$RUNNER_TEMP/debrief.log"
+          grep -q "trust: causes=platform" "$RUNNER_TEMP/debrief.log"
       - if: always()
         env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage}
         run: |

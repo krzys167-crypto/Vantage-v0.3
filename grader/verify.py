@@ -2,6 +2,7 @@
 """Verify a signed grader result, e.g. one a candidate sent you.
 
     python grader/verify.py server_report.json grader_pubkey.pem
+    python grader/verify.py debrief_report.json grader_pubkey.pem     (post-mortem verdict)
 
 Exit 0 and print the summary when the signature matches the grader's public
 key (GET /v1/pubkey on the grader); exit 1 otherwise.
@@ -34,7 +35,14 @@ def main(report_path, pubkey_path):
         print("INVALID signature: the result was modified or signed by another key")
         return 1
     print(f"valid signature | {r['user']} | {r['scenario']} | attempt {r['attempt_id']}")
-    print(f"score {r['score']} | tier {r['tier']} | attested {r['attested']} | MTTR {r['sli']['mttr_s']} s")
+    if r.get("kind") == "debrief":
+        c = r["causes"]
+        print(f"post-mortem score {r['score']} | {r['verdict']} | author key {r['author_key_sha256'][:16]} | "
+              f"for attempt result sha256 {r['attempt_result_sha256'][:16]} (tier {r['attempt_tier']})")
+        print(f"causes confirmed {c['confirmed']} missed {c['missed']} wrong {c['wrong']} | "
+              f"mitigated off by {r['timeline']['mitigated_error_s']} s")
+    else:
+        print(f"score {r['score']} | tier {r['tier']} | attested {r['attested']} | MTTR {r['sli']['mttr_s']} s")
     print(f"trust: {json.dumps(r['trust'])}")
     return 0
 

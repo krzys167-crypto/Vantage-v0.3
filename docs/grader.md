@@ -32,6 +32,7 @@ Zmienne serwera:
 | `GRADER_SKEW_S` | 15 | tolerancja „na żywo” dla znacznika czasu próbki |
 | `GRADER_PLATFORM_TOKEN` | brak | token kontrolera hosted range; zgłoszenie z nim ma `trust.assertions: platform` |
 | `GRADER_HIDDEN_PACKS` | brak | plik JSON `{scenario: [sha256]}` z prywatnymi pakietami ukrytych asercji |
+| `GRADER_DEBRIEF_TTL_S` | 86400 | ile sekund po `submit` grader przyjmuje post-mortem ([docs/debrief.md](debrief.md)) |
 
 ## Co grader gwarantuje
 
@@ -44,6 +45,8 @@ Zmienne serwera:
 | Ogłoszenie stabilności, której nie było | serwer sam sprawdza okno stabilności (wszystkie próbki OK, przerwy ≤ 3 s) i nadpisuje deklarację klienta | `submit`, `test_server_stability_overrides_client_claim` |
 | Zmiana wag, progów albo kar | konfigurację scoringu bierze kopia serwera (`scenarios/*/generated/scoring.json`), a nie klient | `scoring_cfg` |
 | Edycja wyniku po fakcie | podpis ed25519 nad kanonicznym JSON; `verify.py` wykrywa każdą zmianę | `sign`, `verify.py`, `test_happy_path_scores_and_signs` |
+| Post-mortem zgadywany albo wygenerowany bez diagnozy | przyczyny są porównywane z wariantem usterek tej próby, `mitigated` z próbkami serwera. Post-mortem jest jeden na próbę, a `verified` wymaga zera błędnych przyczyn | `debrief`, `test_postmortem_*`, `test_listing_every_cause_is_not_a_strategy` |
+| Cudzy post-mortem albo zmiana po fakcie | podpis klucza uczestnika nad id próby i skrótem treści; klucz jest wiązany z użytkownikiem przy pierwszym użyciu | `test_postmortem_key_is_bound_to_the_user`, `test_postmortem_needs_submit_signature_and_valid_format` |
 | Uczciwy uczestnik z rozjechanym zegarem | serwer mierzy przesunięcie zegara przy starcie i uwzględnia je, więc taka próba nadal może dostać ATTESTED | `test_honest_client_with_skewed_clock_is_attested` |
 
 Próba dostaje `attested: true` tylko wtedy, gdy spełnia wszystkie trzy warunki:

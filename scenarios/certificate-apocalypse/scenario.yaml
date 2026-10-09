@@ -88,3 +88,19 @@ hints:
   - after_s: 1200
     cost: 5
     text: "Re-issue only what is broken, keep the keys, build fullchain = leaf + intermediate, then make apply instead of restarting anything."
+
+# Post-mortem catalog (make postmortem / make debrief): the grader checks the
+# causes named in the write-up against the ones this attempt's seed produced.
+debrief:
+  timeline_tolerance_s: 30
+  causes:
+    - {id: edge_cert_expired,        when: "seed[6] % 2 == 0", text: "the gateway's public certificate is past its notAfter"}
+    - {id: edge_chain_incomplete,    when: "seed[6] % 2 == 1", text: "the gateway serves the leaf without the issuing intermediate"}
+    - {id: mesh_truststore_replaced, when: "seed[7] % 2 == 0", text: "the gateway's mesh trust bundle holds a different CA with the same name"}
+    - {id: mesh_client_cert_expired, when: "seed[7] % 2 == 1", text: "the gateway's mTLS client certificate for the backend expired"}
+    - {id: backend_server_cert_expired, kind: decoy, text: "the backend's server certificate expired"}
+    - {id: public_root_ca_expired,      kind: decoy, text: "the public root CA expired"}
+    - {id: dependency_tls_failure,      kind: decoy, text: "TLS to a dependency named in the logs (cache, kafka, ldap, metrics) failed"}
+    - {id: gateway_clock_skew,          kind: decoy, text: "the gateway's clock drifted, so valid certificates look expired"}
+  facts:
+    - {id: unrelated_tls_warning, value: '["redis.cache.internal", "kafka-0.mesh.internal", "ldap.corp.internal", "metrics.mesh.internal"][seed[8] % 4]', text: "the host in the unrelated TLS warning you ruled out (backend logs)"}

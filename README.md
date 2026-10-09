@@ -62,6 +62,18 @@ Każdy scenariusz wspiera `MODE=docker` (domyślnie) i `MODE=k3d`.
 Weryfikacja wyniku: `python grader/verify.py server_report.json grader.pem`.
 Model zagrożeń, w tym to, czego grader jeszcze nie chroni, jest w [docs/grader.md](docs/grader.md).
 
+## Debrief: post-mortem sprawdzany dowodami
+
+Po `make submit` uczestnik pisze post-mortem (`make postmortem`, potem `make debrief`) i podpisuje go własnym kluczem ed25519.
+Grader sprawdza post-mortem względem własnych dowodów:
+
+- przyczyny muszą odpowiadać usterkom, które wylosował seed tej próby (katalog z wariantami i przynętami jest w `scenario.yaml`);
+- czas naprawy musi się zgadzać z próbkami;
+- oś czasu musi mieścić się w incydencie.
+
+Werdykt (`verified` albo `insufficient`) jest podpisany przez grader i powiązany z wynikiem próby. Na każdą próbę przypada jeden post-mortem.
+Szczegóły: [docs/debrief.md](docs/debrief.md).
+
 ## Hosted range (środowisko po stronie platformy)
 
 `range/range.sh start <scenario>` stawia scenariusz na klastrze platformy, w osobnym namespace.

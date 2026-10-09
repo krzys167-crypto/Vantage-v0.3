@@ -5,6 +5,10 @@
 #   range.sh start <scenario> [user]   -> session id + trainee kubeconfig
 #   range.sh grade <session>           -> assertions (platform creds) + graded submit
 #   range.sh stop  <session>           -> delete namespace, keep evidence
+#   range.sh postmortem <session>      -> post-mortem template for the trainee (after grade)
+#   range.sh debrief <session> <bundle.json>
+#                                      -> forward the trainee's signed post-mortem
+#                                         (they sign it: framework/postmortem.py sign)
 #
 # Needs: kubectl with an admin context ($KUBE_CONTEXT, default k3d-vantage),
 # GRADER_URL (the grader), python3, openssl. Optional: RANGE_PLATFORM_TOKEN
@@ -20,6 +24,7 @@ export GRADER_URL
 
 die() { printf '\033[31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
+PY="$(command -v python3 || command -v python)"
 
 session_env() { # id -> exports for the scenario scripts
   local id="$1" dir="$SESSIONS/$1"
@@ -88,9 +93,15 @@ case "$cmd" in
     [[ -n "${RANGE_PLATFORM_TOKEN:-}" ]] && export VANTAGE_PLATFORM_TOKEN="$RANGE_PLATFORM_TOKEN"
     bash "$SCN/ci/assertions.sh" || true
     bash "$ROOT/framework/submit.sh" "$SCN" ;;
+  postmortem)
+    session_env "${1:?session}"
+    "$PY" "$ROOT/framework/postmortem.py" template "$SCN" ;;
+  debrief)
+    session_env "${1:?session}"
+    "$PY" "$ROOT/framework/postmortem.py" send "$SCN" "${2:?signed bundle (postmortem.py sign)}" ;;
   stop)
     session_env "${1:?session}"
     ( cd "$SCN" && bash scripts/ctl.sh down ) || true
     log "session $1 stopped; evidence kept in $SESSIONS/$1/state/evidence" ;;
-  *) die "usage: range.sh start <scenario> [user] | grade <session> | stop <session>" ;;
+  *) die "usage: range.sh start <scenario> [user] | grade <session> | postmortem <session> | debrief <session> <bundle> | stop <session>" ;;
 esac

@@ -83,3 +83,20 @@ hints:
   - after_s: 1200
     cost: 5
     text: "There is a second, independent fault: the issuer rotated its signing key. The api keyring must hold the active kid with the issuer's exact key."
+
+# Post-mortem catalog (make postmortem / make debrief): the grader checks the
+# causes named in the write-up against the ones this attempt's seed produced.
+debrief:
+  timeline_tolerance_s: 30
+  causes:
+    - {id: clock_skew_auth,             when: "seed[6] % 2 == 0", text: "auth's host clock drifted, so its tokens carry wrong iat/exp"}
+    - {id: clock_skew_api,              when: "seed[6] % 2 == 1", text: "api's host clock drifted, so it judges valid tokens by the wrong time"}
+    - {id: jwt_kid_missing_in_keyring,  when: "seed[8] % 2 == 0", text: "auth signs with a new kid that the api keyring does not have"}
+    - {id: jwt_stale_key_under_new_kid, when: "seed[8] % 2 == 1", text: "the api keyring has the new kid, but with the old key's secret"}
+    - {id: idp_federation_outage,   kind: decoy, text: "the external identity provider in the logs is down"}
+    - {id: token_ttl_too_short,     kind: decoy, text: "auth's token TTL is too short for the request path"}
+    - {id: jwt_audience_mismatch,   kind: decoy, text: "tokens are issued for a different audience"}
+    - {id: jwt_signing_alg_changed, kind: decoy, text: "auth switched the signing algorithm"}
+  facts:
+    - {id: drift_seconds,   value: "180 + seed[9] * 24", text: "how many seconds the drifted clock was off"}
+    - {id: unrelated_idp,   value: '["partner-idp.example", "sso.legacy.corp", "login.acme-hr.example", "idp.vendor-crm.example"][seed[10] % 4]', text: "the identity provider in the unrelated warning you ruled out"}

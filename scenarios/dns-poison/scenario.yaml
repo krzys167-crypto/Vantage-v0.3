@@ -86,3 +86,20 @@ hints:
   - after_s: 1200
     cost: 5
     text: "Two names are broken independently. Fix them where they are defined; overrides and disabled signature checks are graded as regressions."
+
+# Post-mortem catalog (make postmortem / make debrief): the grader checks the
+# causes named in the write-up against the ones this attempt's seed produced.
+debrief:
+  timeline_tolerance_s: 30
+  causes:
+    - {id: payments_record_poisoned_in_zone, when: "seed[6] % 2 == 0", text: "the zone's payments.internal record points at the legacy instance, with a long TTL"}
+    - {id: payments_pinned_in_hosts_override, when: "seed[6] % 2 == 1", text: "an api hosts.json override pins payments.internal to the legacy instance"}
+    - {id: fx_record_deleted,                 when: "seed[7] % 2 == 0", text: "the fx.internal record was deleted from the zone"}
+    - {id: fx_record_typo,                    when: "seed[7] % 2 == 1", text: "the fx.internal record was renamed by a typo"}
+    - {id: dns_server_down,              kind: decoy, text: "the internal DNS server stopped answering"}
+    - {id: payments_service_crashed,     kind: decoy, text: "the payments service itself crashed"}
+    - {id: upstream_signing_key_rotated, kind: decoy, text: "payments rotated its response signing key"}
+    - {id: fx_service_overloaded,        kind: decoy, text: "the fx service is overloaded and times out"}
+  facts:
+    - {id: legacy_instance, value: '["payments-v1", "payments-dc2", "payments-old-cluster", "payments-pre-migration"][seed[10] % 4]', text: "the instance that answered instead of payments"}
+    - {id: poisoned_ttl,    value: "3600 + seed[9] * 5400", when: "seed[6] % 2 == 0", text: "the TTL of the poisoned record, in seconds"}

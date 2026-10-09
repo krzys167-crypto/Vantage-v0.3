@@ -1,0 +1,61 @@
+{
+  "causes": [
+    {
+      "id": "clock_skew_api",
+      "kind": "root",
+      "text": "api's host clock drifted, so it judges valid tokens by the wrong time",
+      "when": "seed[6] % 2 == 1"
+    },
+    {
+      "id": "clock_skew_auth",
+      "kind": "root",
+      "text": "auth's host clock drifted, so its tokens carry wrong iat/exp",
+      "when": "seed[6] % 2 == 0"
+    },
+    {
+      "id": "idp_federation_outage",
+      "kind": "decoy",
+      "text": "the external identity provider in the logs is down"
+    },
+    {
+      "id": "jwt_audience_mismatch",
+      "kind": "decoy",
+      "text": "tokens are issued for a different audience"
+    },
+    {
+      "id": "jwt_kid_missing_in_keyring",
+      "kind": "root",
+      "text": "auth signs with a new kid that the api keyring does not have",
+      "when": "seed[8] % 2 == 0"
+    },
+    {
+      "id": "jwt_signing_alg_changed",
+      "kind": "decoy",
+      "text": "auth switched the signing algorithm"
+    },
+    {
+      "id": "jwt_stale_key_under_new_kid",
+      "kind": "root",
+      "text": "the api keyring has the new kid, but with the old key's secret",
+      "when": "seed[8] % 2 == 1"
+    },
+    {
+      "id": "token_ttl_too_short",
+      "kind": "decoy",
+      "text": "auth's token TTL is too short for the request path"
+    }
+  ],
+  "facts": [
+    {
+      "id": "drift_seconds",
+      "text": "how many seconds the drifted clock was off",
+      "value": "180 + seed[9] * 24"
+    },
+    {
+      "id": "unrelated_idp",
+      "text": "the identity provider in the unrelated warning you ruled out",
+      "value": "[\"partner-idp.example\", \"sso.legacy.corp\", \"login.acme-hr.example\", \"idp.vendor-crm.example\"][seed[10] % 4]"
+    }
+  ],
+  "timeline_tolerance_s": 30
+}

@@ -1,0 +1,62 @@
+{
+  "causes": [
+    {
+      "id": "dns_server_down",
+      "kind": "decoy",
+      "text": "the internal DNS server stopped answering"
+    },
+    {
+      "id": "fx_record_deleted",
+      "kind": "root",
+      "text": "the fx.internal record was deleted from the zone",
+      "when": "seed[7] % 2 == 0"
+    },
+    {
+      "id": "fx_record_typo",
+      "kind": "root",
+      "text": "the fx.internal record was renamed by a typo",
+      "when": "seed[7] % 2 == 1"
+    },
+    {
+      "id": "fx_service_overloaded",
+      "kind": "decoy",
+      "text": "the fx service is overloaded and times out"
+    },
+    {
+      "id": "payments_pinned_in_hosts_override",
+      "kind": "root",
+      "text": "an api hosts.json override pins payments.internal to the legacy instance",
+      "when": "seed[6] % 2 == 1"
+    },
+    {
+      "id": "payments_record_poisoned_in_zone",
+      "kind": "root",
+      "text": "the zone's payments.internal record points at the legacy instance, with a long TTL",
+      "when": "seed[6] % 2 == 0"
+    },
+    {
+      "id": "payments_service_crashed",
+      "kind": "decoy",
+      "text": "the payments service itself crashed"
+    },
+    {
+      "id": "upstream_signing_key_rotated",
+      "kind": "decoy",
+      "text": "payments rotated its response signing key"
+    }
+  ],
+  "facts": [
+    {
+      "id": "legacy_instance",
+      "text": "the instance that answered instead of payments",
+      "value": "[\"payments-v1\", \"payments-dc2\", \"payments-old-cluster\", \"payments-pre-migration\"][seed[10] % 4]"
+    },
+    {
+      "id": "poisoned_ttl",
+      "text": "the TTL of the poisoned record, in seconds",
+      "value": "3600 + seed[9] * 5400",
+      "when": "seed[6] % 2 == 0"
+    }
+  ],
+  "timeline_tolerance_s": 30
+}

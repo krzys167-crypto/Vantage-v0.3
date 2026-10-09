@@ -18,6 +18,11 @@ A hosted range closes that: its controller submits with the platform token
 and with the hidden-pack registry (GRADER_HIDDEN_PACKS, JSON {scenario: [sha256]})
 it says whether the hidden checks came from a private pack.
 
+After submit the trainee sends a post-mortem signed with their own ed25519 key
+(bound to the user on first use). The grader checks it against its own evidence:
+the causes against the ones this seed produced (generated/debrief.json), the
+claimed recovery time against the probe stream, and signs the verdict.
+
 API (JSON; per-attempt bearer token returned at creation):
   POST /v1/attempts                      {user, scenario}         -> {attempt_id, seed, token}
   POST /v1/attempts/<id>/events          {type, data}             -> {ts}
@@ -25,6 +30,8 @@ API (JSON; per-attempt bearer token returned at creation):
   POST /v1/attempts/<id>/submit          {assertions, baseline, current, mode} -> signed result
                                          (X-Vantage-Platform: <token> from a hosted-range controller)
   GET  /v1/attempts/<id>/result                                   -> signed result
+  POST /v1/attempts/<id>/debrief         {markdown, pubkey, signature} -> signed debrief (once, after submit)
+  GET  /v1/attempts/<id>/debrief                                  -> signed debrief
   GET  /v1/pubkey                                                 -> PEM
 """
 import argparse
@@ -45,7 +52,8 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "framework"))
-from scoring import compute  # noqa: E402
+import debrief as pm  # noqa: E402
+from scoring import compute, recovery  # noqa: E402
 
 SKEW_S = float(os.environ.get("GRADER_SKEW_S", "15"))          # live window for probe timestamps
 STABLE_WINDOW = float(os.environ.get("GRADER_STABLE_WINDOW", "60"))
@@ -53,6 +61,7 @@ MAX_GAP_S = 3.0                                                 # same rule as a
 ATTEST_MAX_GAP_S = 10.0                                         # longest blind spot allowed for attestation
 PLATFORM_TOKEN = os.environ.get("GRADER_PLATFORM_TOKEN", "")
 HIDDEN_PACKS = os.environ.get("GRADER_HIDDEN_PACKS", "")         # JSON file {scenario: [sha256, ...]}
+DEBRIEF_TTL_S = float(os.environ.get("GRADER_DEBRIEF_TTL_S", "86400"))  # post-mortem deadline after submit
 SCENARIO_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
 SCHEMA = """
@@ -63,11 +72,27 @@ CREATE TABLE IF NOT EXISTS events (attempt TEXT, ts REAL, type TEXT, data TEXT);
 CREATE TABLE IF NOT EXISTS probes (
   attempt TEXT, recv REAL, ts REAL, ok INTEGER, claimed_ok INTEGER, lat_ms REAL, flag_ok INTEGER, err TEXT);
 CREATE TABLE IF NOT EXISTS rejects (attempt TEXT, recv REAL, ts REAL, reason TEXT);
+CREATE TABLE IF NOT EXISTS authors (user TEXT PRIMARY KEY, key_sha TEXT, pubkey TEXT, first_seen REAL);
+CREATE TABLE IF NOT EXISTS debriefs (attempt TEXT PRIMARY KEY, received REAL, markdown TEXT, result TEXT, signature TEXT);
 """
 
 
 def canonical(obj):
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+
+
+def ed25519_verify(pubkey_pem, message, signature):
+    with tempfile.TemporaryDirectory() as d:
+        paths = {n: os.path.join(d, n) for n in ("pub", "msg", "sig")}
+        for n, data in (("pub", pubkey_pem.encode()), ("msg", message), ("sig", signature)):
+            with open(paths[n], "wb") as f:
+                f.write(data)
+        key = subprocess.run(["openssl", "pkey", "-pubin", "-in", paths["pub"], "-outform", "DER"], capture_output=True)
+        if key.returncode != 0 or b"\x2b\x65\x70" not in key.stdout[:16]:   # OID 1.3.101.112 = Ed25519
+            return None
+        ok = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", paths["pub"], "-rawin",
+                             "-in", paths["msg"], "-sigfile", paths["sig"]], capture_output=True).returncode == 0
+        return hashlib.sha256(key.stdout).hexdigest() if ok else False
 
 
 def expected_flag(seed, host):
@@ -131,6 +156,13 @@ class Grader:
         path = os.path.join(self.scenarios_dir, scenario, "generated", "scoring.json")
         if not SCENARIO_RE.match(scenario) or not os.path.exists(path):
             raise KeyError(f"unknown scenario {scenario}")
+        with open(path) as f:
+            return json.load(f)
+
+    def debrief_cfg(self, scenario):
+        path = os.path.join(self.scenarios_dir, scenario, "generated", "debrief.json")
+        if not SCENARIO_RE.match(scenario) or not os.path.exists(path):
+            raise KeyError(f"{scenario} has no post-mortem catalog")
         with open(path) as f:
             return json.load(f)
 
@@ -298,6 +330,71 @@ class Grader:
             return 404, {"error": "not submitted"}
         return 200, {"result": json.loads(a["result"]), "signature": a["signature"], "alg": "ed25519"}
 
+    def debrief(self, a, body):
+        if not a["submitted"]:
+            return 409, {"error": "submit the attempt first: the post-mortem is checked against its evidence"}
+        now = time.time()
+        if now - a["submitted"] > DEBRIEF_TTL_S:
+            return 410, {"error": "the post-mortem deadline for this attempt has passed"}
+        if self.db.execute("SELECT 1 FROM debriefs WHERE attempt=?", (a["id"],)).fetchone():
+            return 409, {"error": "post-mortem already recorded (one per attempt)"}
+        catalog = self.debrief_cfg(a["scenario"])
+        md, pub = str(body.get("markdown") or ""), str(body.get("pubkey") or "")
+        if not md or len(md) > 64_000:
+            return 400, {"error": "markdown missing or larger than 64 kB"}
+        try:
+            sig = base64.b64decode(str(body.get("signature") or ""), validate=True)
+        except ValueError:
+            return 400, {"error": "signature is not base64"}
+        key_sha = ed25519_verify(pub, pm.message(a["id"], md), sig)
+        if key_sha is None:
+            return 400, {"error": "pubkey is not an ed25519 public key (PEM)"}
+        if key_sha is False:
+            return 403, {"error": "post-mortem signature does not verify"}
+        # Problems with the write-up itself do not use up the one post-mortem.
+        doc = pm.parse(md)
+        errs = pm.lint(doc, catalog, a["id"])
+        if errs:
+            return 422, {"error": "post-mortem rejected", "problems": errs}
+
+        rows = self.db.execute("SELECT ts, ok FROM probes WHERE attempt=? ORDER BY ts", (a["id"],)).fetchall()
+        off = a["clock_offset"] or 0.0
+        inc = [{"ts": r[0] - off, "ok": bool(r[1])} for r in rows if r[0] - off >= a["break_ts"]]
+        _, recovered = recovery(inc)
+        ev = pm.evaluate(doc, catalog, a["seed"], a["break_ts"], recovered, a["submitted"])
+        attempt_result = json.loads(a["result"])
+        local = attempt_result.get("trust", {}).get("assertions") != "platform"
+        with self.lock:
+            if self.db.execute("SELECT 1 FROM debriefs WHERE attempt=?", (a["id"],)).fetchone():
+                return 409, {"error": "post-mortem already recorded (one per attempt)"}
+            # Trust on first use: a user's first post-mortem binds their key.
+            known = self.db.execute("SELECT key_sha FROM authors WHERE user=?", (a["user"],)).fetchone()
+            if known and known[0] != key_sha:
+                return 403, {"error": f"user {a['user']} signs post-mortems with another key"}
+            if not known:
+                self.db.execute("INSERT INTO authors VALUES (?,?,?,?)", (a["user"], key_sha, pub, now))
+            result = dict({"kind": "debrief", "attempt_id": a["id"], "user": a["user"], "scenario": a["scenario"],
+                           "received_at": now, "author_key_sha256": key_sha,
+                           "postmortem_sha256": hashlib.sha256(md.encode()).hexdigest(),
+                           "attempt_result_sha256": hashlib.sha256(canonical(attempt_result)).hexdigest(),
+                           "attempt_tier": attempt_result.get("tier"),
+                           "trust": {"author": "user key, bound on first use" + ("" if known else " (bound now)"),
+                                     "timeline": "server probes",
+                                     "causes": "local run: fault variants were readable on the trainee's machine"
+                                               if local else "platform: the seed never left the range"}},
+                          **ev)
+            sig_out = self.sign(result)
+            self.db.execute("INSERT INTO debriefs VALUES (?,?,?,?,?)",
+                            (a["id"], now, md, json.dumps(result), sig_out))
+            self.db.commit()
+        return 200, {"result": result, "signature": sig_out, "alg": "ed25519", "signed": "canonical JSON of result"}
+
+    def debrief_result(self, a):
+        row = self.db.execute("SELECT result, signature FROM debriefs WHERE attempt=?", (a["id"],)).fetchone()
+        if not row:
+            return 404, {"error": "no post-mortem yet"}
+        return 200, {"result": json.loads(row[0]), "signature": row[1], "alg": "ed25519"}
+
 
 def make_handler(g):
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -333,7 +430,9 @@ def make_handler(g):
                     handlers = {("POST", "events"): lambda: g.event(a, body),
                                 ("POST", "probes"): lambda: g.probes(a, body),
                                 ("POST", "submit"): lambda: g.submit(a, body, self.is_platform()),
-                                ("GET", "result"): lambda: g.result(a)}
+                                ("GET", "result"): lambda: g.result(a),
+                                ("POST", "debrief"): lambda: g.debrief(a, body),
+                                ("GET", "debrief"): lambda: g.debrief_result(a)}
                     if (method, action) in handlers:
                         return self.reply(*handlers[(method, action)]())
                 self.reply(404, {"error": "not found"})
