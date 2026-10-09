@@ -74,6 +74,12 @@ Grader sprawdza post-mortem względem własnych dowodów:
 Werdykt (`verified` albo `insufficient`) jest podpisany przez grader i powiązany z wynikiem próby. Na każdą próbę przypada jeden post-mortem.
 Szczegóły: [docs/debrief.md](docs/debrief.md).
 
+## Odznaki i liga
+
+Odznaki (`surgeon`, `coroner`, `range_certified` i inne) oraz miesięczna liga liczą wyłącznie wyniki attested i post-mortemy verified.
+Każda odznaka wskazuje próbę, której podpisany wynik można zweryfikować. Liga pokazuje tylko aliasy.
+`python framework/grader_client.py profile <user>` / `league`. Szczegóły: [docs/league.md](docs/league.md).
+
 ## Hosted range (środowisko po stronie platformy)
 
 `range/range.sh start <scenario>` stawia scenariusz na klastrze platformy, w osobnym namespace.

@@ -5,6 +5,8 @@
     grader_client.py event   <state_dir> <type> [json_data]
     grader_client.py push    <state_dir>                        -> sends probes not sent yet
     grader_client.py submit  <scenario_dir>                     -> prints the signed server result
+    grader_client.py profile [user]                             -> your badges and bests (signed)
+    grader_client.py league  [YYYY-MM]                          -> the monthly league (signed, aliases)
 
 The attempt id and token live in <state_dir>/attempt.json; the push offset in
 <state_dir>/grader.offset. Stdlib only, no proxy (the grader is usually local or
@@ -132,8 +134,37 @@ def submit(scn):
     return 0 if r["tier"] != "fail" else 1
 
 
+def profile(user=None):
+    import urllib.parse
+    user = user or os.environ.get("USER_ID") or "anonymous"
+    code, res = call("GET", f"/v1/users/{urllib.parse.quote(user, safe='')}/profile")
+    if code != 200:
+        die(f"profile ({code}): {res.get('error')}")
+    p = res["result"]
+    print(f"{p['user']} (league alias {p['alias']})")
+    for scn, s in sorted(p["scenarios"].items()):
+        m = f"{s['best_mttr_s'] / 60:.1f} min" if s["best_mttr_s"] else "-"
+        print(f"  {scn:<24} best {s['best_score'] or '-':>5} {s['best_tier'] or '':<6} MTTR {m:<9} "
+              f"attempts {s['attempts']}{'  post-mortem verified' if s['debrief_verified'] else ''}")
+    for b in p["badges"]:
+        print(f"  * {b['badge']:<16} {b['scenario'] or '':<24} attempt {b['attempt_id']}  ({b['text']})")
+    if not p["badges"]:
+        print("  no badges yet: they come from attested results and verified post-mortems only")
+
+
+def league(month=None):
+    code, res = call("GET", "/v1/league" + (f"?season={month}" if month else ""))
+    if code != 200:
+        die(f"league ({code}): {res.get('error')}")
+    lg = res["result"]
+    print(f"league {lg['season']}: {lg['rules']}")
+    for r in lg["rows"]:
+        print(f"  {r['rank']:>3}. {r['alias']:<14} {r['points']:>7.1f}  ({r['scenarios']} scenarios)")
+
+
 if __name__ == "__main__":
     if not URL:
         die("GRADER_URL is not set")
     cmd, args = sys.argv[1], sys.argv[2:]
-    sys.exit({"create": create, "event": event, "push": push, "submit": submit}[cmd](*args) or 0)
+    sys.exit({"create": create, "event": event, "push": push, "submit": submit, "profile": profile,
+              "league": league}[cmd](*args) or 0)

@@ -250,6 +250,35 @@ Reverted both changes.
         self.assertEqual(code, 403, res)
         self.assertIn("another key", res["error"])
 
+    def test_profile_and_league_come_from_signed_evidence(self):
+        import league
+        user = "league@x"
+        a, recovered = self.incident(user=user)
+        cat, (root, contrib) = self.truth(a)
+        evidence = " ".join(pm.facts(cat, a["seed"]).values())
+        self.assertEqual(self.send_pm(a, self.postmortem(a, sorted(root | contrib), recovered, evidence=evidence),
+                                      self.user_key())[0], 200)
+        code, res = self.call("GET", "/v1/users/league%40x/profile")
+        self.assertEqual(code, 200, res)
+        p = res["result"]
+        got = {b["badge"] for b in p["badges"]}
+        self.assertTrue({"first_recovery", "forensic", "coroner"} <= got, got)
+        self.assertTrue(all(b["attempt_id"] == a["attempt_id"] for b in p["badges"]))
+        self.assertEqual(p["scenarios"]["retry-storm"]["best_attempt"], a["attempt_id"])
+        _, pem = self.call("GET", "/v1/pubkey")
+        with tempfile.TemporaryDirectory() as d:
+            for name, data in (("pub.pem", pem), ("msg", server.canonical(p)), ("sig", base64.b64decode(res["signature"]))):
+                open(os.path.join(d, name), "wb").write(data)
+            v = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", f"{d}/pub.pem", "-rawin",
+                                "-in", f"{d}/msg", "-sigfile", f"{d}/sig"], capture_output=True)
+            self.assertEqual(v.returncode, 0)
+        code, res = self.call("GET", f"/v1/league?season={league.season(time.time())}")
+        self.assertEqual(code, 200, res)
+        rows = {r["alias"]: r for r in res["result"]["rows"]}
+        self.assertIn(league.alias(user), rows)
+        self.assertNotIn(user, json.dumps(res))
+        self.assertEqual(self.call("GET", "/v1/league?season=oct")[0], 400)
+
     def test_cause_catalogs_cover_every_seed_branch(self):
         for scn in ("certificate-apocalypse", "clock-drift", "dns-poison", "retry-storm"):
             cat = self.g.debrief_cfg(scn)

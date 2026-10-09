@@ -34,7 +34,16 @@ def main(report_path, pubkey_path):
     if not ok:
         print("INVALID signature: the result was modified or signed by another key")
         return 1
-    print(f"valid signature | {r['user']} | {r['scenario']} | attempt {r['attempt_id']}")
+    if r.get("kind") not in ("profile", "league"):
+        print(f"valid signature | {r['user']} | {r['scenario']} | attempt {r['attempt_id']}")
+    else:
+        print("valid signature")
+    if r.get("kind") == "profile":
+        print(f"profile {r['user']} ({r['alias']}): badges {[b['badge'] for b in r['badges']]}")
+        return 0
+    if r.get("kind") == "league":
+        print(f"league {r['season']}: {len(r['rows'])} players")
+        return 0
     if r.get("kind") == "debrief":
         c = r["causes"]
         print(f"post-mortem score {r['score']} | {r['verdict']} | author key {r['author_key_sha256'][:16]} | "

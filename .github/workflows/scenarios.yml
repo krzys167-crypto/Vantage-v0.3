@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python -m unittest grader/test_grader.py -v
+      - run: python -m unittest grader/test_grader.py grader/test_league.py -v
       # controller logic that needs no cluster: subnet claims under concurrency, unusable private packs
       - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh
 
@@ -59,6 +59,9 @@ jobs:
           grep -q "VERIFIED" "$RUNNER_TEMP/debrief.log"
           python ../../grader/verify.py .state/evidence/debrief_report.json "$RUNNER_TEMP/grader.pem"
           ! make debrief                                                # one per attempt
+          # badges come from the signed evidence above
+          python ../../framework/grader_client.py profile ci@vantage | tee "$RUNNER_TEMP/profile.log"
+          grep -q "forensic" "$RUNNER_TEMP/profile.log" && grep -q "first_recovery" "$RUNNER_TEMP/profile.log"
       - if: failure()
         run: cat "$RUNNER_TEMP/grader.log" | tail -50
 
