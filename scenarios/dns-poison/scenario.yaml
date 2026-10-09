@@ -43,9 +43,9 @@ traffic:
 
 assertions:
   public:
-    - {id: A1, type: dns_answer, name: payments.internal, expect: live_instance}
-    - {id: A2, type: dns_answer, name: fx.internal, expect: live_instance}
-    - {id: A3, type: client_view_consistent, service: api}
+    - {id: A1, type: dns_answer, name: payments.internal, expect: live_instance, detects: [dns_poison]}
+    - {id: A2, type: dns_answer, name: fx.internal, expect: live_instance, detects: [dns_record_missing]}
+    - {id: A3, type: client_view_consistent, service: api, detects: [dns_poison, dns_record_missing]}
     - {id: A4, type: checkout_ok, expect: {status: 200, header: X-Vantage-Flag, served_by: payments}}
     - {id: A5, type: health_stable_Ns, window_s: 60}
     - {id: A6, type: log_absence, service: api, pattern: "upstream error"}
@@ -54,7 +54,7 @@ assertions:
     - {id: H2, type: no_static_overrides}
     - {id: H3, type: zone_serial_bumped}
     - {id: H4, type: payments_ttl_sane, max_s: 3600}
-    - {id: H5, type: no_record_to_legacy}
+    - {id: H5, type: no_record_to_legacy, detects: [dns_poison]}
     - {id: H6, type: flag_authentic}
 
 scoring:

@@ -41,14 +41,14 @@ traffic:
 assertions:
   public:
     - {id: A1, type: checkout_ok, expect: {status: 200, header: X-Vantage-Flag}}
-    - {id: A2, type: capacity_headroom, service: inventory, max_utilization: 0.6, max_p95_queue_ms: 50}
-    - {id: A3, type: retry_amplification, service: api, max_attempts_per_request: 1.2}
-    - {id: A4, type: latency_slo, service: api, p95_ms: 150}
+    - {id: A2, type: capacity_headroom, service: inventory, max_utilization: 0.6, max_p95_queue_ms: 50, detects: [cpu_throttle]}
+    - {id: A3, type: retry_amplification, service: api, max_attempts_per_request: 1.2, detects: [retry_amplification]}
+    - {id: A4, type: latency_slo, service: api, p95_ms: 150, detects: [cpu_throttle, retry_amplification]}
     - {id: A5, type: health_stable_Ns, window_s: 60}
     - {id: A6, type: log_absence, service: api, pattern: "upstream timeout"}
   hidden:
-    - {id: H1, type: retries_bounded, max: 3}
-    - {id: H2, type: backoff_with_jitter, min_backoff_ms: 50}
+    - {id: H1, type: retries_bounded, max: 3, detects: [retry_amplification]}
+    - {id: H2, type: backoff_with_jitter, min_backoff_ms: 50, detects: [retry_amplification]}
     - {id: H3, type: timeout_sane, range_ms: [200, 3000]}
     - {id: H4, type: backlog_bounded, max: 1000}
     - {id: H5, type: no_static_fallback, security_critical: true}
