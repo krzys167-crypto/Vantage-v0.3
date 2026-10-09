@@ -74,7 +74,7 @@ Przydział jest atomowy w obrębie jednego hosta kontrolera: `start` bierze blok
 | Asercje raportuje klient | Asercje uruchamia platforma, uczestnik nie ma do nich wpływu |
 | Sekret flagi jest u uczestnika | Sekret jest w `backend-pki`, poza rolą uczestnika, a `SEED` nie ma w klastrze |
 | Prober da się sfałszować na żywo | Prober jest deploymentem, którego uczestnik nie może zmienić, a agent działa na hoście platformy |
-| Ukryte asercje leżą w repo | **Nadal w repo.** Uczestnik nie może wpłynąć na ich wykonanie, ale może je przeczytać, więc wie, czego nie robić. Pełne rozwiązanie to prywatny pakiet reguł ładowany przez kontroler |
+| Ukryte asercje leżą w repo | Mechanizm gotowy: `RANGE_PRIVATE_DIR/<scenariusz>/hidden.sh` zastępuje referencyjny `ci/hidden.sh` z repo przy `range.sh grade`. Brak pakietu w ustawionym katalogu to błąd (kod 2), nie cichy powrót do publicznych asercji. **Do zrobienia po stronie platformy:** własny pakiet, który różni się od referencyjnego; pliki z repo zostają jako wersja deweloperska i dla CI |
 
 Ograniczenia obecnej wersji:
 

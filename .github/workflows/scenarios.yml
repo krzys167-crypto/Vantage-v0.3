@@ -18,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python -m unittest grader/test_grader.py -v
+      - run: bash range/tests/hidden_pack.sh
 
   # graded run end to end: seed from the grader, live probe stream, server score
   graded:

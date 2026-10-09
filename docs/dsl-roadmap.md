@@ -8,5 +8,5 @@
 | Pluginy | katalog usterek jako enum w schemacie | `faults`/`assertions` jako pluginy OCI (`type: oci://…@sha256`) z własnym schematem parametrów, podpisane Cosign |
 | Mutacje | wyrażenia w komentarzach (`seed[6] % 2`) | deklaratywne `mutations:` z generatorem → wynik zapisywany do evidence |
 | Środowisko | ✅ `mode: docker` i `mode: k3d` (manifesty + NetworkPolicy) | kustomize/overlays, ResourceQuota per uczestnik, microVM |
-| Ukryte asercje | lokalnie (widoczne w repo) | wykonywane server-side na evidence; runner podpisuje tylko surowe dane |
+| Ukryte asercje | ✅ wydzielone do `ci/hidden.sh`, podmienialne prywatnym pakietem (`VANTAGE_HIDDEN_DIR`, w hosted: `RANGE_PRIVATE_DIR`); wciąż uruchamiane przez skrypt scenariusza | wykonywane server-side na evidence; runner podpisuje tylko surowe dane |
 | Generator | ✅ `validate.py --emit` generuje config scoringu i hintów, `--check` pilnuje w CI, że nie są nieaktualne | `vantage new --from scenario.yaml` generuje też compose/manifests, Makefile i szkielet asercji |

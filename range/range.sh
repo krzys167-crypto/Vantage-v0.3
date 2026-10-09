@@ -113,6 +113,8 @@ case "$cmd" in
   grade)
     session_env "${1:?session}"
     export USER_ID
+    # private hidden-assertion pack lives on the platform, never in the repo or the cluster
+    [[ -n "${RANGE_PRIVATE_DIR:-}" ]] && export VANTAGE_HIDDEN_DIR="$RANGE_PRIVATE_DIR"
     bash "$SCN/ci/assertions.sh" || true
     bash "$ROOT/framework/submit.sh" "$SCN" ;;
   stop)

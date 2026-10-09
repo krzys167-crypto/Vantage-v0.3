@@ -255,6 +255,23 @@ record() { # id visibility name pass(0/1) detail
   else printf '  %-4s %-26s %s\n' "$1" "(hidden)" "$mark"; fi
 }
 
+# Runs the scenario's hidden assertions. A private pack (VANTAGE_HIDDEN_DIR/<scenario>/hidden.sh,
+# kept outside the public repo and set only by the platform's controller) replaces the in-repo
+# reference pack. If a private dir is configured but has no pack, fail instead of falling back:
+# a silent fallback would grade against the public assertions.
+hidden_assertions() { # scenario ci dir
+  local scn pack; scn="$(basename "$(cd "$1/.." && pwd)")"
+  if [[ -n "${VANTAGE_HIDDEN_DIR:-}" ]]; then
+    pack="$VANTAGE_HIDDEN_DIR/$scn/hidden.sh"
+    [[ -f "$pack" ]] || { echo "xx no private hidden pack at $pack" >&2; exit 2; }
+  else
+    pack="$1/hidden.sh"
+  fi
+  echo "hidden:"
+  # shellcheck disable=SC1090
+  source "$pack"
+}
+
 ok() { "$@" >/dev/null 2>&1 && echo 1 || echo 0; }
 
 # A7-style check shared by all scenarios: every probe in the window ok + coverage.
