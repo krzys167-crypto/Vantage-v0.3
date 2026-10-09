@@ -35,14 +35,44 @@ session_env() { # id -> exports for the scenario scripts
   SCN="$ROOT/scenarios/$SCENARIO"
 }
 
-free_svc_net() { # a /24 in k3s' service CIDR that no Service uses yet (fixed ClusterIPs)
-  local used n
+with_lock() { # serialise controllers on this host (mkdir is atomic and portable, unlike flock)
+  local lock="$SESSIONS/.lock" i
+  mkdir -p "$SESSIONS"
+  for i in $(seq 1 150); do
+    if mkdir "$lock" 2>/dev/null; then
+      local rc=0; "$@" || rc=$?
+      rmdir "$lock" 2>/dev/null || true
+      return $rc
+    fi
+    # a lock older than a minute belongs to a crashed controller
+    [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null || true
+    sleep 0.2
+  done
+  die "could not take $lock"
+}
+
+claim_svc_net() { # id -> a /24 in k3s' service CIDR that no Service uses and no session has claimed
+  local id="$1" used n claims="$SESSIONS/.nets"
+  mkdir -p "$claims"
   used="$(kubectl --context "$KUBE_CONTEXT" get svc -A -o jsonpath='{range .items[*]}{.spec.clusterIP}{"\n"}{end}' \
           | awk -F. '{print $3}' | sort -u)"
   for n in $(seq 200 249 | shuf); do
-    grep -qx "$n" <<<"$used" || { echo "10.43.$n"; return; }
+    [[ -e "$claims/$n" ]] && continue          # another start may not have created its Services yet
+    grep -qx "$n" <<<"$used" && continue
+    echo "$id" > "$claims/$n"
+    echo "10.43.$n"; return
   done
   die "no free /24 left in 10.43.200-249 for fixed ClusterIPs"
+}
+
+free_svc_net() { with_lock claim_svc_net "$1"; }   # the claim lives until stop (or a failed start)
+
+release_svc_net() { # id: drop every claim this session holds
+  local f
+  for f in "$SESSIONS"/.nets/*; do
+    [[ -f "$f" && "$(cat "$f")" == "$1" ]] && rm -f "$f"
+  done
+  return 0
 }
 
 trainee_kubeconfig() { # ns out
@@ -73,7 +103,8 @@ case "$cmd" in
     [[ -f "$SCN/k8s/trainee-role.yaml" ]] || die "$scenario has no k8s/trainee-role.yaml: not available as a hosted range yet"
     id="$(openssl rand -hex 4)"; dir="$SESSIONS/$id"
     mkdir -p "$dir/state" && chmod 700 "$dir"
-    net="$(free_svc_net)"
+    net="$(free_svc_net "$id")"
+    started=0; trap '[[ $started == 1 ]] || release_svc_net "$id"' EXIT
     printf 'SCENARIO=%s\nUSER_ID=%s\nEDGE_PORT=%s\nVANTAGE_SVC_NET=%s\n' "$scenario" "$user" \
       "$(( 20000 + 16#${id:0:4} % 20000 ))" "$net" > "$dir/session.env"
     session_env "$id"
@@ -84,6 +115,7 @@ case "$cmd" in
     bash "$SCN/scripts/break.sh"
     trainee_kubeconfig "$VANTAGE_NS" "$dir/trainee.kubeconfig"
     log "trainee kubeconfig: $dir/trainee.kubeconfig (namespace $VANTAGE_NS)"
+    started=1
     echo "$id" ;;
   grade)
     session_env "${1:?session}"
@@ -91,7 +123,12 @@ case "$cmd" in
     # the hidden checks come from the platform's private pack when it has one
     [[ -n "${RANGE_HIDDEN_PACK:-}" ]] && export VANTAGE_HIDDEN_PACK="$RANGE_HIDDEN_PACK"
     [[ -n "${RANGE_PLATFORM_TOKEN:-}" ]] && export VANTAGE_PLATFORM_TOKEN="$RANGE_PLATFORM_TOKEN"
-    bash "$SCN/ci/assertions.sh" || true
+    # a stale result must never be graded: drop it, and treat anything but pass (0) /
+    # public fail (1) as an aborted run, e.g. exit 2 when the private pack is unusable
+    rm -f "$VANTAGE_STATE/assertions.json"
+    rc=0; bash "$SCN/ci/assertions.sh" || rc=$?
+    [[ $rc == 0 || $rc == 1 ]] || die "assertions aborted (exit $rc): not grading"
+    [[ -f "$VANTAGE_STATE/assertions.json" ]] || die "assertions wrote no result: not grading"
     bash "$ROOT/framework/submit.sh" "$SCN" ;;
   postmortem)
     session_env "${1:?session}"
@@ -102,6 +139,7 @@ case "$cmd" in
   stop)
     session_env "${1:?session}"
     ( cd "$SCN" && bash scripts/ctl.sh down ) || true
+    release_svc_net "$1"
     log "session $1 stopped; evidence kept in $SESSIONS/$1/state/evidence" ;;
   *) die "usage: range.sh start <scenario> [user] | grade <session> | postmortem <session> | debrief <session> <bundle> | stop <session>" ;;
 esac

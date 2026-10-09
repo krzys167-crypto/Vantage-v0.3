@@ -12,12 +12,15 @@ jobs:
       - run: pip install pyyaml jsonschema
       # schema + semantic checks, and generated/ must match scenario.yaml
       - run: python dsl/validate.py --check
+      - run: python -m unittest dsl/test_lint.py -v
 
   grader-unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: python -m unittest grader/test_grader.py -v
+      # controller logic that needs no cluster: subnet claims under concurrency, unusable private packs
+      - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh
 
   # graded run end to end: seed from the grader, live probe stream, server score
   graded:

@@ -543,6 +543,26 @@
           },
           "security_critical": {
             "type": "boolean"
+          },
+          "detects": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "tls_cert_expired",
+                "x509_chain_incomplete",
+                "invalid_truststore",
+                "mtls_client_cert_expired",
+                "time_skew",
+                "dns_poison",
+                "kafka_lag",
+                "cpu_throttle",
+                "jwt_key_rotation_partial",
+                "dns_record_missing",
+                "retry_amplification"
+              ]
+            },
+            "uniqueItems": true,
+            "description": "fault ids this assertion fails on while the fault is active (lint: every fault needs a public detector)"
           }
         }
       }

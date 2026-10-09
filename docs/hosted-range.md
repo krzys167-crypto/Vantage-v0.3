@@ -68,7 +68,9 @@ Granice sprawdzają w CI `range/tests/trainee_{cert,clock,dns,retry}.sh` (wspól
 
 Każda sesja ma własny namespace `vr-<id>` i własny `EDGE_PORT`. Split-Brain DNS używa stałych ClusterIP (rekordy A muszą być stabilne), a te są globalne w klastrze. Dlatego kontroler przydziela każdej sesji wolną podsieć /24 z zakresu `10.43.200–249` (`VANTAGE_SVC_NET` w `session.env`). `k8s/manifests.yaml` dostaje ją przez placeholder `{{NET}}`, który framework podstawia z `scenario.env` (`render_manifests`).
 
-Przydział nie jest atomowy: dwa równoczesne `start` mogą wylosować tę samą podsieć, a wtedy drugi `apply` się nie powiedzie. Kontroler produkcyjny potrzebuje tu blokady albo rejestru podsieci.
+Przydział jest atomowy na jednym hoście kontrolera. `start` bierze blokadę (`range/.sessions/.lock`, `mkdir` jest atomowy) i pomija podsieci zajęte przez Service albo zarezerwowane przez inną sesję. Rezerwację zapisuje w `range/.sessions/.nets/<n>`. Zwalnia ją `stop` albo każde wyjście `start` przed końcem. Blokadę starszą niż minuta zostawił kontroler, który padł, więc nowy ją przejmuje. `range/tests/net_claims.sh` (job `grader-unit`) uruchamia 30 równoległych rezerwacji na atrapie `kubectl`: wszystkie podsieci są różne, a bez blokady pojawiają się duplikaty. Kilka hostów kontrolera potrzebowałoby wspólnego rejestru (np. ConfigMap z `resourceVersion`).
+
+`grade` nie ocenia na starych wynikach. Przed asercjami usuwa `assertions.json`. Kod wyjścia inny niż 0 (zaliczone) albo 1 (publiczne nie przeszły) przerywa ocenę. Kod 2 oznacza prywatny pakiet, którego brakuje albo który jest zapisywalny dla wszystkich, bo jest uruchamiany jako kod. Sprawdza to `range/tests/hidden_pack.sh`.
 
 ## Prywatny pakiet ukrytych asercji
 

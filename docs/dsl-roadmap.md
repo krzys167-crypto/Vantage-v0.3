@@ -2,7 +2,7 @@
 
 | Krok | v0 (teraz) | v1 |
 |---|---|---|
-| Walidacja | `dsl/validate.py` + JSON Schema, w CI dla każdego `scenario.yaml` | schema publikowana pod `$id` z wersją; `vantage lint` z regułami semantycznymi (np. każda usterka ma asercję, która ją wykrywa) |
+| Walidacja | `dsl/validate.py` + JSON Schema, w CI dla każdego `scenario.yaml` | schema publikowana pod `$id` z wersją; `vantage lint` z regułami semantycznymi (✅ w v0: każda usterka ma publiczną asercję z `detects: [...]`, sprawdza `dsl/test_lint.py`; reszta reguł do dodania) |
 | Wersjonowanie | `apiVersion: vantage.dev/v0`, `meta.version` semver | `vantage.dev/v1` + konwerter `v0→v1`; runner obsługuje N i N-1 |
 | Wykonanie | ✅ wspólny `framework/` (runtime docker/k3d, `score.py`, `hints.sh`) czyta `generated/*.json` emitowane z YAML; asercje nadal w bash per scenariusz | asercje jako pluginy wywoływane przez silnik; scenariusz dostarcza tylko pluginy |
 | Pluginy | katalog usterek jako enum w schemacie | `faults`/`assertions` jako pluginy OCI (`type: oci://…@sha256`) z własnym schematem parametrów, podpisane Cosign |

@@ -41,6 +41,19 @@ def semantic_errors(doc, scn_dir):
     for f in doc["faults"]:
         if f["target"] not in svc:
             errs.append(f"fault {f['id']} targets unknown service {f['target']!r}")
+    # lint: a fault the trainee can never see failing is not a scenario, it is a trap
+    fault_ids = {f["id"] for f in doc["faults"]}
+    public = {a["id"] for a in doc["assertions"]["public"]}
+    detected_public = set()
+    for group in doc["assertions"].values():
+        for a in group:
+            for fid in a.get("detects", []):
+                if fid not in fault_ids:
+                    errs.append(f"assertion {a['id']} detects {fid!r}, which is not a fault of this scenario")
+                if a["id"] in public:
+                    detected_public.add(fid)
+    for fid in sorted(fault_ids - detected_public):
+        errs.append(f"fault {fid} has no public assertion that detects it (add detects: [{fid}] to one)")
     if set(doc["scoring"]["weights"]) != {"availability", "time_to_recover", "latency", "blast_radius", "hidden"}:
         errs.append("scoring.weights must define availability, time_to_recover, latency, blast_radius, hidden")
     t = doc["scoring"]["tiers"]
