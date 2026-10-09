@@ -98,6 +98,15 @@ class API(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/sessions/mine/stop", u)[1]["session"]["status"], "stopped")
         calls = open(os.path.join(TMP, "calls.log")).read()
         self.assertIn(f"start dns-poison {u}|token", calls)      # the user's own IdP token reaches the grader
+        # the admin funnel saw this user's whole path, and only admins see it
+        self.assertEqual(self.call("GET", "/api/admin/funnel", u)[0], 403)
+        api.ADMIN_TOKEN = "admin-secret"
+        self.addCleanup(setattr, api, "ADMIN_TOKEN", "")
+        req = urllib.request.Request(self.url + "/api/admin/funnel", headers={"X-Admin-Token": "admin-secret"})
+        with OP.open(req, timeout=10) as r:
+            f = json.loads(r.read())
+        self.assertGreaterEqual(f["stages"]["graded"], 1)
+        self.assertGreaterEqual(f["stages"]["kubeconfig"], 1)
 
     def test_failed_start_is_reported_and_capacity_is_bounded(self):
         self.call("POST", "/api/sessions", "boom@x", {"scenario": "dns-poison"})
@@ -115,6 +124,41 @@ class API(unittest.TestCase):
         for u in ("boom@x", "second@x"):
             self.wait(u, "ready")
             self.call("POST", "/api/sessions/mine/stop", u)
+
+
+class Funnel(unittest.TestCase):
+    def test_stages_conversion_stuck_and_return(self):
+        import telemetry
+        t = telemetry.Telemetry(os.path.join(TMP, "funnel.db"))
+        self.addCleanup(t.db.close)
+        clock = [1_790_000_000.0]
+        real = telemetry.time.time
+        telemetry.time.time = lambda: clock[0]
+        self.addCleanup(setattr, telemetry.time, "time", real)
+
+        def at(dt, user, ev, **kw):
+            clock[0] += dt
+            t.record(user, ev, scenario="dns-poison", **kw)
+        # ann: full pass; bob: never downloads the kubeconfig; cid: fails, comes back next day and passes
+        at(0, "ann@x", "start"); at(60, "ann@x", "ready"); at(30, "ann@x", "kubeconfig")
+        at(600, "ann@x", "graded", tier="merit", attested=True)
+        at(5, "bob@x", "start"); at(90, "bob@x", "ready")
+        at(5, "cid@x", "start"); at(70, "cid@x", "ready"); at(10, "cid@x", "kubeconfig")
+        at(900, "cid@x", "graded", tier="fail", attested=True)
+        at(86400, "cid@x", "start"); at(60, "cid@x", "ready"); at(20, "cid@x", "kubeconfig")
+        at(400, "cid@x", "graded", tier="pass", attested=True)
+        f = t.funnel()
+        self.assertEqual(f["stages"], {"start": 4, "ready": 4, "kubeconfig": 3, "graded": 3, "passed": 2})
+        self.assertEqual(f["stuck_after"]["ready"], 1)          # bob
+        self.assertEqual(f["stuck_after"]["graded"], 1)         # cid's failed first try
+        self.assertEqual((f["users"], f["returned_users"]), (3, 1))
+        self.assertEqual(f["median_times"]["start->ready_s"], 65.0)
+        self.assertEqual(f["conversion"]["ready->kubeconfig"], 0.75)
+        self.assertNotIn("ann@x", json.dumps(f))                # aliases only
+        rows = t.db.execute("SELECT DISTINCT user FROM events").fetchall()
+        self.assertTrue(all(r[0].startswith("u-") for r in rows))
+        with self.assertRaises(ValueError):
+            t.record("ann@x", "keystrokes")                     # only the declared events
 
 
 if __name__ == "__main__":

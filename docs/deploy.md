@@ -52,6 +52,25 @@ Po instalacji ustaw w Supabase: **Authentication → URL Configuration → Redir
 
 Post-mortem na razie wysyła się z CLI (`framework/postmortem.py`), bo podpis kluczem uczestnika w przeglądarce (WebCrypto Ed25519) to osobny krok.
 
+## Telemetria: gdzie ludzie się zacinają
+
+API zapisuje po stronie serwera (`range/telemetry.py`, SQLite w katalogu sesji) zdarzenia: start, gotowość, pobranie kubeconfig, ocena (poziom, wynik, MTTR, podpowiedzi), stop, wygaśnięcie i błędy. Nie ma zewnętrznych trackerów. Użytkownicy są zapisywani jako aliasy z ligi, a nie jako adresy e-mail.
+
+```bash
+curl -s -H "X-Admin-Token: $RANGE_ADMIN_TOKEN" https://<domena>/api/admin/funnel?days=30
+```
+
+Raport zawiera:
+
+- `stages`: liczbę prób, które doszły do każdego etapu (start → ready → kubeconfig → graded → passed);
+- `conversion`: odsetek przejścia między kolejnymi etapami;
+- `stuck_after`: liczbę prób, które zatrzymały się na danym etapie. Od tego warto zacząć rozmowę z użytkownikiem;
+- `median_times`: medianę czasu uruchomienia, czasu do pobrania kubeconfig i czasu do oceny;
+- `returned_users`: liczbę osób z sesjami w co najmniej dwóch różnych dniach, czyli pierwszy sygnał retencji;
+- `per_scenario`: liczbę rozpoczętych i zaliczonych prób na scenariusz.
+
+Token admina generuje instalator (`RANGE_ADMIN_TOKEN` w `/etc/vantage/env`).
+
 ## Co jest sprawdzone, a co nie
 
 - `range/tests/test_api.py` (CI) sprawdza: logowanie wymagane (sfałszowany JWT dostaje 401), pełny przebieg start → kubeconfig → ocena → stop, to, że nikt nie pobierze cudzego kubeconfig, jeden incydent na osobę, limit miejsc (429) i raport z nieudanego startu.

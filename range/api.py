@@ -25,6 +25,7 @@ RANGE_SH (override for tests). Sessions live in memory; a restart forgets them
 (their namespaces are reaped by `range.sh stop` from the evidence directory).
 """
 import argparse
+import hmac
 import http.server
 import json
 import os
@@ -40,12 +41,15 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "grader"))
 import server as grader  # noqa: E402  (authenticate: same identity rules as the grader)
+sys.path.insert(0, os.path.join(ROOT, "range"))
+from telemetry import Telemetry  # noqa: E402
 
 RANGE_SH = os.environ.get("RANGE_SH", os.path.join(ROOT, "range", "range.sh"))
 SESSIONS_DIR = os.environ.get("RANGE_SESSIONS", os.path.join(ROOT, "range", ".sessions"))
 MAX_SESSIONS = int(os.environ.get("RANGE_MAX_SESSIONS", "3"))
 TTL_S = float(os.environ.get("RANGE_SESSION_TTL_S", "14400"))
 PANEL = os.path.join(ROOT, "range", "panel", "index.html")
+ADMIN_TOKEN = os.environ.get("RANGE_ADMIN_TOKEN", "")      # GET /api/admin/funnel
 NOPROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -66,9 +70,16 @@ def scenarios():
 
 
 class Range:
-    def __init__(self):
+    def __init__(self, telemetry=None):
         self.lock = threading.Lock()
         self.by_user = {}          # user -> session dict
+        self.t = telemetry or Telemetry(os.path.join(SESSIONS_DIR, "telemetry.db"))
+
+    def ev(self, s, event, **data):
+        try:
+            self.t.record(s["user"], event, session=s.get("id"), scenario=s.get("scenario"), **data)
+        except Exception as e:          # telemetry never breaks the range
+            sys.stderr.write(f"telemetry: {e}\n")
 
     def active(self):
         return [s for s in self.by_user.values() if s["status"] in ("starting", "ready", "grading", "graded")]
@@ -90,6 +101,7 @@ class Range:
                 return 429, {"error": "the range is full right now, try again in a few minutes"}
             s = {"user": user, "scenario": scenario, "status": "starting", "created": time.time(), "id": None}
             self.by_user[user] = s
+        self.ev(s, "start")
 
         def work():
             try:
@@ -98,10 +110,13 @@ class Range:
                 lines = [l for l in p.stdout.strip().splitlines() if l.strip()]
                 if p.returncode == 0 and lines and re.fullmatch(r"[0-9a-f]{8}", lines[-1]):
                     s.update(id=lines[-1], status="ready", ready_at=time.time())
+                    self.ev(s, "ready", seconds=round(s["ready_at"] - s["created"], 1))
                 else:
                     s["status"] = "failed"
+                    self.ev(s, "start_failed", rc=p.returncode)
             except subprocess.TimeoutExpired:
                 s["status"] = "failed"
+                self.ev(s, "start_failed", rc="timeout")
         threading.Thread(target=work, daemon=True).start()
         return 202, {"session": self.view(s)}
 
@@ -110,13 +125,18 @@ class Range:
         if not s or s["status"] != "ready":
             return 409, {"error": "no incident ready to grade"}
         s["status"] = "grading"
+        self.ev(s, "grade")
         p = self.run(s, "grade", s["id"], timeout=600)
         report = os.path.join(SESSIONS_DIR, s["id"], "state", "evidence", "server_report.json")
         if p.returncode in (0, 1) and os.path.exists(report):
             with open(report) as f:
                 s.update(status="graded", result=json.load(f)["result"])
+            r = s["result"]
+            self.ev(s, "graded", tier=r.get("tier"), score=r.get("score"), attested=r.get("attested"),
+                    mttr_s=(r.get("sli") or {}).get("mttr_s"), hints=r.get("hints_used"))
             return 200, {"session": self.view(s), "result": s["result"]}
         s["status"] = "ready"            # nothing was submitted: the trainee may try again
+        self.ev(s, "grade_failed", rc=p.returncode)
         return 502, {"error": "grading did not complete", "log": s["log"][-1500:]}
 
     def stop(self, user):
@@ -126,12 +146,14 @@ class Range:
         if s.get("id"):
             self.run(s, "stop", s["id"], timeout=300)
         s["status"] = "stopped"
+        self.ev(s, "stop")
         return 200, {"session": self.view(s)}
 
     def kubeconfig(self, user):
         s = self.by_user.get(user)
         if not s or s["status"] not in ("ready", "grading", "graded"):
             return 404, {"error": "no running incident"}
+        self.ev(s, "kubeconfig")
         with open(os.path.join(SESSIONS_DIR, s["id"], "trainee.kubeconfig")) as f:
             return 200, f.read()
 
@@ -140,6 +162,7 @@ class Range:
             if s["status"] in ("ready", "graded") and time.time() - s["created"] > TTL_S:
                 self.stop(s["user"])
                 s["status"] = "expired"
+                self.ev(s, "expired")
 
     @staticmethod
     def view(s):
@@ -188,6 +211,13 @@ def make_handler(rng):
                                             "supabase_key": os.environ.get("PANEL_SUPABASE_KEY", "")})
                 if method == "GET" and path == "/api/scenarios":
                     return self.reply(200, {"scenarios": scenarios()})
+                if method == "GET" and path == "/api/admin/funnel":
+                    got = self.headers.get("X-Admin-Token") or ""
+                    if not ADMIN_TOKEN or not hmac.compare_digest(got.encode(), ADMIN_TOKEN.encode()):
+                        return self.reply(403, {"error": "admin token required"})
+                    q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                    days = float(q.get("days", ["30"])[0])
+                    return self.reply(200, rng.t.funnel(time.time() - days * 86400))
                 if method == "GET" and path == "/api/league":
                     return self.reply(*grader_get("/v1/league"))
                 if not path.startswith("/api/"):
