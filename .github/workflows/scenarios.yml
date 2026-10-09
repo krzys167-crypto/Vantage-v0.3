@@ -21,6 +21,12 @@ jobs:
       - run: python -m unittest grader/test_grader.py grader/test_league.py grader/test_identity.py grader/test_jwks.py -v
       # controller logic that needs no cluster: subnet claims under concurrency, unusable private packs
       - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh
+      # panel API with a stub range.sh and real JWT checks; the installer at least parses and refuses secret keys
+      - run: python -m unittest range/tests/test_api.py -v
+      - run: |
+          bash -n deploy/install.sh
+          bash deploy/install.sh --dry-run --domain range.example.com --supabase https://x.supabase.co --supabase-key sb_publishable_x >/dev/null
+          ! bash deploy/install.sh --dry-run --domain range.example.com --supabase https://x.supabase.co --supabase-key sb_secret_x 2>/dev/null
 
   # graded run end to end: seed from the grader, live probe stream, server score
   graded:

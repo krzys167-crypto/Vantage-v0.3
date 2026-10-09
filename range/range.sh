@@ -84,6 +84,7 @@ trainee_kubeconfig() { # ns out
     --serviceaccount="$ns:trainee" >/dev/null
   token="$(kubectl --context "$KUBE_CONTEXT" -n "$ns" create token trainee --duration="${RANGE_TTL:-4h}")"
   server="$(kubectl --context "$KUBE_CONTEXT" config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')"
+  server="${RANGE_PUBLIC_API:-$server}"     # what trainees reach from outside, e.g. https://range.example:6443
   ca="$(kubectl --context "$KUBE_CONTEXT" config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
   umask 077
   cat > "$out" <<EOT
