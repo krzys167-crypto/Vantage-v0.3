@@ -28,6 +28,9 @@ class GraderTest(unittest.TestCase):
     def setUpClass(cls):
         server.STABLE_WINDOW = 4.0          # short windows keep the tests fast
         cls.tmp = tempfile.mkdtemp()
+        server.PLATFORM_TOKEN = "platform-secret"
+        server.HIDDEN_PACKS = os.path.join(cls.tmp, "packs.json")
+        json.dump({"certificate-apocalypse": ["a" * 64]}, open(server.HIDDEN_PACKS, "w"))
         cls.g, cls.srv = server.serve(0, cls.tmp, os.path.join(ROOT, "scenarios"))
         cls.url = f"http://127.0.0.1:{cls.srv.server_address[1]}"
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
@@ -36,11 +39,12 @@ class GraderTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.srv.shutdown()
 
-    def call(self, method, path, body=None, token=None):
+    def call(self, method, path, body=None, token=None, headers=None):
         req = urllib.request.Request(self.url + path, method=method,
                                      data=json.dumps(body).encode() if body is not None else None,
                                      headers={"Content-Type": "application/json",
-                                              **({"Authorization": f"Bearer {token}"} if token else {})})
+                                              **({"Authorization": f"Bearer {token}"} if token else {}),
+                                              **(headers or {})})
         try:
             with OP.open(req, timeout=5) as r:
                 raw = r.read()
@@ -68,9 +72,10 @@ class GraderTest(unittest.TestCase):
                            "err": None if ok else "simulated"}])
             time.sleep(dt)
 
-    def submit(self, a, assertions=ASSERTIONS):
+    def submit(self, a, assertions=ASSERTIONS, headers=None):
         return self.call("POST", f"/v1/attempts/{a['attempt_id']}/submit",
-                         {"assertions": assertions, "mode": "docker", "baseline": {}, "current": {}}, a["token"])
+                         {"assertions": assertions, "mode": "docker", "baseline": {}, "current": {}}, a["token"],
+                         headers)
 
     # --- tests -----------------------------------------------------------------
     def test_happy_path_scores_and_signs(self):
@@ -93,6 +98,29 @@ class GraderTest(unittest.TestCase):
             v = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", f"{d}/pub.pem", "-rawin",
                                 "-in", f"{d}/msg", "-sigfile", f"{d}/sig"], capture_output=True)
             self.assertEqual(v.returncode, 0, v.stdout + v.stderr)
+
+    def test_assertion_trust_needs_the_platform_token(self):
+        private = dict(ASSERTIONS, hidden_pack={"source": "private", "sha256": "a" * 64})
+        cases = [  # (header, pack) -> trust
+            (None, private, ("client-reported", "client-reported")),                 # trainee claims a private pack
+            ({"X-Vantage-Platform": "guess"}, private, ("client-reported", "client-reported")),
+            ({"X-Vantage-Platform": "platform-secret"}, ASSERTIONS, ("platform", "platform, public pack")),
+            ({"X-Vantage-Platform": "platform-secret"}, private, ("platform", "platform, private pack")),
+        ]
+        for headers, asr, (want_asr, want_hidden) in cases:
+            a = self.start()
+            self.ev(a, "break", {"host": a["host"]})
+            self.live(a, 10, ok=True, flag=a["flag"], dt=0.5)
+            code, res = self.submit(a, asr, headers)
+            self.assertEqual(code, 200, res)
+            t = res["result"]["trust"]
+            self.assertEqual((t["assertions"], t["hidden"]), (want_asr, want_hidden), headers)
+
+    def test_unregistered_pack_is_not_private(self):
+        g = server.Grader
+        self.assertEqual(g.hidden_trust(True, "certificate-apocalypse", {"sha256": "b" * 64}), "platform, public pack")
+        self.assertEqual(g.hidden_trust(True, "dns-poison", {"sha256": "a" * 64}), "platform, public pack")
+        self.assertEqual(g.hidden_trust(True, "certificate-apocalypse", None), "platform, public pack")
 
     def test_backfilled_probes_are_rejected(self):
         a = self.start()

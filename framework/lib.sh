@@ -286,17 +286,34 @@ EOF
   record "$1" public "health_stable_${2}s" "$p" "$detail"
 }
 
+# Hidden checks live in a pack: ci/hidden.sh (public, for practice) unless the
+# platform points VANTAGE_HIDDEN_PACK at a private directory <pack>/<scenario>/hidden.sh.
+# The pack's sha256 goes into assertions.json so the grader can tell which ran.
+run_hidden_pack() {
+  local f="$SCN_DIR/ci/hidden.sh" src=public
+  if [[ -n "${VANTAGE_HIDDEN_PACK:-}" ]]; then
+    f="$VANTAGE_HIDDEN_PACK/$SCENARIO/hidden.sh" src=private
+    [[ -f "$f" ]] || die "hidden pack has no $SCENARIO/hidden.sh: $VANTAGE_HIDDEN_PACK"
+  fi
+  printf '%s %s\n' "$src" "$(openssl dgst -sha256 -r "$f" | cut -d' ' -f1)" > "$ASSERT_TMP/pack"
+  echo "hidden:"
+  # shellcheck disable=SC1090
+  source "$f"
+}
+
 assert_finish() { # writes .state/assertions.json; exit code = public pass
   snapshot "$STATE/current.tsv"   # blast radius input for score.py
-  "$PY" - "$ASSERT_RESULTS" "$STATE/assertions.json" "${STABLE_WINDOW:-60}" <<'EOF'
-import json, sys, time
+  "$PY" - "$ASSERT_RESULTS" "$STATE/assertions.json" "${STABLE_WINDOW:-60}" "$ASSERT_TMP/pack" <<'EOF'
+import json, os, sys, time
 rows = [l.rstrip("\n").split("\t") for l in open(sys.argv[1]) if l.strip()]
+pack = open(sys.argv[4]).read().split() if os.path.exists(sys.argv[4]) else ["none", ""]
 out = {"ts": time.time(), "window_s": float(sys.argv[3]), "assertions": [
     {"id": r[0], "visibility": r[1], "name": r[2], "pass": r[3] == "1", "detail": r[4] if r[1] == "public" else ""}
     for r in rows]}
 out["public_pass"] = all(a["pass"] for a in out["assertions"] if a["visibility"] == "public")
 out["hidden_pass"] = sum(a["pass"] for a in out["assertions"] if a["visibility"] == "hidden")
 out["hidden_total"] = sum(1 for a in out["assertions"] if a["visibility"] == "hidden")
+out["hidden_pack"] = {"source": pack[0], "sha256": pack[1]}
 json.dump(out, open(sys.argv[2], "w"), indent=2)
 print(f"public: {'PASS' if out['public_pass'] else 'FAIL'}   hidden: {out['hidden_pass']}/{out['hidden_total']}")
 sys.exit(0 if out["public_pass"] else 1)

@@ -23,11 +23,12 @@ URL = os.environ.get("GRADER_URL", "").rstrip("/")
 OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def call(method, path, body=None, token=None, timeout=10):
+def call(method, path, body=None, token=None, timeout=10, headers=None):
     req = urllib.request.Request(URL + path, method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json",
-                                          **({"Authorization": f"Bearer {token}"} if token else {})})
+                                          **({"Authorization": f"Bearer {token}"} if token else {}),
+                                          **(headers or {})})
     try:
         with OP.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read() or b"{}")
@@ -108,7 +109,11 @@ def submit(scn):
     env = dict(l.strip().split("=", 1) for l in open(os.path.join(state, "scenario.env")) if "=" in l)
     body = {"assertions": json.load(open(os.path.join(state, "assertions.json"))), "mode": env.get("MODE", "docker"),
             "baseline": identities(state, "baseline.tsv"), "current": identities(state, "current.tsv")}
-    code, res = call("POST", f"/v1/attempts/{a['attempt_id']}/submit", body, a["token"], timeout=30)
+    # a hosted-range controller identifies itself, so the grader knows the
+    # assertions ran on the platform and not on the trainee's machine
+    platform = os.environ.get("VANTAGE_PLATFORM_TOKEN")
+    code, res = call("POST", f"/v1/attempts/{a['attempt_id']}/submit", body, a["token"], timeout=30,
+                     headers={"X-Vantage-Platform": platform} if platform else None)
     if code != 200:
         die(f"submit rejected ({code}): {res.get('error')}")
     out = os.path.join(state, "evidence", "server_report.json")
@@ -120,6 +125,8 @@ def submit(scn):
     i = r["integrity"]
     print(f"  integrity: stable={i['server_stable_ok']} max_gap={i['max_gap_during_incident_s']}s "
           f"rejected={i['rejected_probes'] or 0} wrong_flag={i['probes_with_wrong_flag']}")
+    t = r.get("trust", {})
+    print(f"  trust: assertions={t.get('assertions')} hidden={t.get('hidden')}")
     print(f"SERVER SCORE {r['score']:.1f}  TIER {r['tier'].upper()}  "
           f"{'ATTESTED' if r['attested'] else 'NOT ATTESTED'}   (attempt {r['attempt_id']}, {os.path.relpath(out, scn)})")
     return 0 if r["tier"] != "fail" else 1

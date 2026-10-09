@@ -7,7 +7,9 @@
 #   range.sh stop  <session>           -> delete namespace, keep evidence
 #
 # Needs: kubectl with an admin context ($KUBE_CONTEXT, default k3d-vantage),
-# GRADER_URL (the grader), python3, openssl. The scenario must ship
+# GRADER_URL (the grader), python3, openssl. Optional: RANGE_PLATFORM_TOKEN
+# (shared with the grader's GRADER_PLATFORM_TOKEN) and RANGE_HIDDEN_PACK (a
+# private directory <pack>/<scenario>/hidden.sh). The scenario must ship
 # k8s/trainee-role.yaml and may ship scripts/range_trainee_objects.sh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -81,6 +83,9 @@ case "$cmd" in
   grade)
     session_env "${1:?session}"
     export USER_ID
+    # the hidden checks come from the platform's private pack when it has one
+    [[ -n "${RANGE_HIDDEN_PACK:-}" ]] && export VANTAGE_HIDDEN_PACK="$RANGE_HIDDEN_PACK"
+    [[ -n "${RANGE_PLATFORM_TOKEN:-}" ]] && export VANTAGE_PLATFORM_TOKEN="$RANGE_PLATFORM_TOKEN"
     bash "$SCN/ci/assertions.sh" || true
     bash "$ROOT/framework/submit.sh" "$SCN" ;;
   stop)
