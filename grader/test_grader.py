@@ -36,6 +36,23 @@ class GraderTest(unittest.TestCase):
         cls.url = f"http://127.0.0.1:{cls.srv.server_address[1]}"
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
 
+    def raw_post(self, path, content_length, headers=""):
+        """POST with a hand-written Content-Length and no body; the status line, or None on a hang."""
+        import socket
+        s = socket.create_connection(("127.0.0.1", self.srv.server_address[1]), timeout=3)
+        s.sendall(f"POST {path} HTTP/1.1\r\nHost: x\r\nContent-Length: {content_length}\r\n{headers}\r\n".encode())
+        try:
+            return s.recv(64).split(b"\r\n")[0].decode()
+        except socket.timeout:
+            return None
+        finally:
+            s.close()
+
+    def test_bad_content_length_is_refused_not_waited_for(self):
+        for cl in ("-1", "abc"):
+            self.assertIn("400", self.raw_post("/v1/attempts", cl) or "hang", cl)
+        self.assertIn("413", self.raw_post("/v1/attempts", "99999999") or "hang")
+
     @classmethod
     def tearDownClass(cls):
         cls.srv.shutdown()

@@ -105,14 +105,23 @@ state_needs_init() {
   mkdir -p "$STATE" "$EVID"; return 0
 }
 
+# scenario.env is sourced by the shell and parsed line by line by Python, and USER_ID can come
+# from an identity provider (an e-mail claim): keep ordinary ids as they are and replace
+# anything with shell metacharacters by a stable pseudonym, so it can never execute on source.
+safe_user_id() { # user id -> value safe to write unquoted into scenario.env
+  if [[ "$1" =~ ^[A-Za-z0-9@._+-]{1,200}$ ]]; then printf '%s' "$1"
+  else printf 'u-%s' "$(printf '%s' "$1" | openssl dgst -sha256 -r | cut -c1-16)"; fi
+}
+
 # Common head of scenario.env + evidence signing key + timeline.
 write_common_env() { # scenario_id seed
+  local uid; uid="$(safe_user_id "${USER_ID:-$(git config user.email 2>/dev/null || echo anonymous)}")"
   cat > "$STATE/scenario.env" <<EOF
 SCENARIO=$1
 STATE_DIR=$STATE
 MODE=${MODE:-docker}
 KUBE_CONTEXT=${KUBE_CONTEXT:-k3d-vantage}
-USER_ID=${USER_ID:-$(git config user.email 2>/dev/null || echo anonymous)}
+USER_ID=$uid
 SEED=$2
 EDGE_PORT=${EDGE_PORT:-${GATEWAY_PORT:-8443}}
 STABLE_WINDOW=${STABLE_WINDOW:-60}

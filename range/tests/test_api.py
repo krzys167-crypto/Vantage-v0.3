@@ -127,6 +127,21 @@ class API(unittest.TestCase):
         scn = self.call("GET", "/api/scenarios")[1]["scenarios"]
         self.assertEqual({s["id"] for s in scn}, {"certificate-apocalypse", "clock-drift", "dns-poison", "retry-storm"})
 
+    def test_bad_content_length_is_refused_not_waited_for(self):
+        import socket
+        tok = self.key.token(test_jwks.claims(email="cl@x.io"))
+        for cl, want in (("-1", "400"), ("abc", "400"), ("99999", "413")):
+            s = socket.create_connection(("127.0.0.1", self.srv.server_address[1]), timeout=3)
+            s.sendall(f"POST /api/sessions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {tok}\r\n"
+                      f"Content-Length: {cl}\r\n\r\n".encode())
+            try:
+                line = s.recv(64).split(b"\r\n")[0].decode()
+            except socket.timeout:
+                line = "hang"
+            finally:
+                s.close()
+            self.assertIn(want, line, f"Content-Length {cl}")
+
     def test_login_is_required(self):
         self.assertEqual(self.call("GET", "/api/sessions/mine")[0], 401)
         forged = self.key.token(test_jwks.claims(email="a@x")).rsplit(".", 1)[0] + "." + test_jwks.b64u(b"\0" * 64)
