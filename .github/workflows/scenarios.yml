@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python -m unittest grader/test_grader.py grader/test_league.py grader/test_identity.py grader/test_jwks.py -v
       # controller logic that needs no cluster: subnet claims under concurrency, unusable private packs
-      - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh
+      - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh && bash range/tests/start_safety.sh && bash range/tests/install_args.sh
       # panel API with a stub range.sh and real JWT checks; the installer at least parses and refuses secret keys
       - run: python -m unittest range/tests/test_api.py -v
       - run: |
