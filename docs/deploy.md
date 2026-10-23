@@ -49,8 +49,7 @@ Po instalacji ustaw w Supabase: **Authentication → URL Configuration → Redir
 - Przycisk „oceń”: asercje uruchamia platforma, a wynik podpisuje grader.
 - Profil z odznakami oraz liga miesięczna (tylko aliasy).
 - Sesje wygasają po `RANGE_SESSION_TTL_S` (domyślnie 4 h).
-
-Post-mortem na razie wysyła się z CLI (`framework/postmortem.py`), bo podpis kluczem uczestnika w przeglądarce (WebCrypto Ed25519) to osobny krok.
+- Post-mortem po ocenie: lista przyczyn, sprawdzenie formatu i podpis w przeglądarce (WebCrypto Ed25519), werdykt gradera na ekranie. Szczegóły i wymiana utraconego klucza: [docs/debrief.md](debrief.md).
 
 ## Telemetria: gdzie ludzie się zacinają
 
@@ -66,6 +65,7 @@ Raport zawiera:
 - `conversion`: odsetek przejścia między kolejnymi etapami;
 - `stuck_after`: liczbę prób, które zatrzymały się na danym etapie. Od tego warto zacząć rozmowę z użytkownikiem;
 - `median_times`: medianę czasu uruchomienia, czasu do pobrania kubeconfig i czasu do oceny;
+- `debriefed` i `conversion["graded->debriefed"]`: ile ocenionych prób dochodzi do post-mortemu wysłanego z panelu;
 - `returned_users`: liczbę osób z sesjami w co najmniej dwóch różnych dniach, czyli pierwszy sygnał retencji;
 - `per_scenario`: liczbę rozpoczętych i zaliczonych prób na scenariusz.
 
@@ -73,5 +73,6 @@ Token admina generuje instalator (`RANGE_ADMIN_TOKEN` w `/etc/vantage/env`).
 
 ## Co jest sprawdzone, a co nie
 
+- `range/tests/test_panel_browser.py` (job `panel-browser`) przechodzi panel w prawdziwym Chromium: start, ocena, post-mortem podpisany w przeglądarce i zweryfikowany przez grader.
 - `range/tests/test_api.py` (CI) sprawdza: logowanie wymagane (sfałszowany JWT dostaje 401), pełny przebieg start → kubeconfig → ocena → stop, to, że nikt nie pobierze cudzego kubeconfig, jeden incydent na osobę, limit miejsc (429) i raport z nieudanego startu.
 - `deploy/install.sh` w CI tylko się parsuje (`bash -n`), przechodzi `--dry-run` i odrzuca klucz sekretny. Na prawdziwej maszynie jeszcze nie był uruchamiany. Pierwsza instalacja to też jego pierwszy test.

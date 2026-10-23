@@ -251,6 +251,31 @@ Reverted both changes.
         self.assertEqual(code, 403, res)
         self.assertIn("another key", res["error"])
 
+    def test_lost_browser_key_can_be_replaced_openly(self):
+        tok = self.with_identities()
+        a, rec = self.incident(headers=tok("rot@x"))
+        old_key = self.user_key()
+        r1 = self.send_pm(a, self.postmortem(a, ["traffic_burst"], rec), old_key)[1]["result"]
+        b, rec_b = self.incident(headers=tok("rot@x"))
+        new_key = self.user_key()
+        md = self.postmortem(b, ["traffic_burst"], rec_b)
+        code, res = self.send_pm(b, md, new_key)
+        self.assertEqual(code, 403, res)                       # silently switching keys is still refused
+        self.assertIn("rotate_key", res["error"])
+        path, pub = new_key
+        with tempfile.NamedTemporaryFile() as msg:
+            msg.write(pm.message(b["attempt_id"], md))
+            msg.flush()
+            sig = subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", path, "-rawin", "-in", msg.name],
+                                 check=True, capture_output=True).stdout
+        body = {"markdown": md, "pubkey": pub, "signature": base64.b64encode(sig).decode(), "rotate_key": True}
+        code, res = self.call("POST", f"/v1/attempts/{b['attempt_id']}/debrief", body, b["token"])
+        self.assertEqual(code, 200, res)
+        r2 = res["result"]
+        self.assertEqual(r2["replaced_key_sha256"], r1["author_key_sha256"])
+        self.assertNotEqual(r2["author_key_sha256"], r1["author_key_sha256"])
+        self.assertIn("replaced", r2["trust"]["author"])
+
     def test_profile_and_league_come_from_signed_evidence(self):
         import league
         user = "league@x"

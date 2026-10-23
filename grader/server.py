@@ -31,7 +31,7 @@ API (JSON; per-attempt bearer token returned at creation):
   POST /v1/attempts/<id>/submit          {assertions, baseline, current, mode} -> signed result
                                          (X-Vantage-Platform: <token> from a hosted-range controller)
   GET  /v1/attempts/<id>/result                                   -> signed result
-  POST /v1/attempts/<id>/debrief         {markdown, pubkey, signature} -> signed debrief (once, after submit)
+  POST /v1/attempts/<id>/debrief         {markdown, pubkey, signature[, rotate_key]} -> signed debrief (once, after submit)
   GET  /v1/attempts/<id>/debrief                                  -> signed debrief
   GET  /v1/users/<user>/profile                                   -> signed badges and bests (docs/league.md)
   GET  /v1/league?season=YYYY-MM                                  -> signed monthly league (aliases only)
@@ -425,17 +425,28 @@ class Grader:
             # for users the platform vouched for; a self-declared name could be anyone's.
             vouched = self.identity_of(a["id"])[0] in VOUCHED
             known = self.db.execute("SELECT key_sha FROM authors WHERE user=?", (a["user"],)).fetchone()
-            if vouched and known and known[0] != key_sha:
-                return 403, {"error": f"user {a['user']} signs post-mortems with another key"}
+            # A browser key can be lost with its site data. The vouched user (a fresh IdP login
+            # started this attempt) may replace it, but only openly: the signed verdict says so
+            # and carries the key it replaced.
+            rotating = bool(body.get("rotate_key")) and vouched and bool(known) and known[0] != key_sha
+            if vouched and known and known[0] != key_sha and not rotating:
+                return 403, {"error": f"user {a['user']} signs post-mortems with another key "
+                                      "(lost the old one? send rotate_key: true)"}
             if vouched and not known:
                 self.db.execute("INSERT INTO authors VALUES (?,?,?,?)", (a["user"], key_sha, pub, now))
+            elif rotating:
+                self.db.execute("UPDATE authors SET key_sha=?, pubkey=?, first_seen=? WHERE user=?",
+                                (key_sha, pub, now, a["user"]))
             author = ("user key, bound on first use" + ("" if known else " (bound now)") if vouched
                       else "self-declared user: key checked, not bound")
+            if rotating:
+                author = "user key replaced by the vouched user (rotate_key)"
             result = dict({"kind": "debrief", "attempt_id": a["id"], "user": a["user"], "scenario": a["scenario"],
                            "received_at": now, "author_key_sha256": key_sha,
                            "postmortem_sha256": hashlib.sha256(md.encode()).hexdigest(),
                            "attempt_result_sha256": hashlib.sha256(canonical(attempt_result)).hexdigest(),
                            "attempt_tier": attempt_result.get("tier"),
+                           **({"replaced_key_sha256": known[0]} if rotating else {}),
                            "trust": {"author": author,
                                      "timeline": "server probes",
                                      "causes": "local run: fault variants were readable on the trainee's machine"

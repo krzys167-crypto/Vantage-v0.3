@@ -21,6 +21,11 @@
   button.ghost { background:transparent; color:var(--text); border:1px solid var(--line) }
   button:disabled { opacity:.5; cursor:default }
   input { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:inherit; width:100% }
+  textarea { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px; font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; width:100%; min-height:340px; resize:vertical }
+  label.cause { display:flex; gap:8px; align-items:flex-start; padding:4px 0 }
+  label.cause input { width:auto; margin-top:4px }
+  label.cause code { color:var(--muted); font-size:12px }
+  .problems { margin:8px 0 0; padding-left:18px } .problems li { color:var(--bad) }
   pre { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; font-size:13px }
   .muted { color:var(--muted) } .ok { color:var(--ok) } .bad { color:var(--bad) } .warn { color:var(--warn) }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
@@ -48,6 +53,11 @@
     <h2>Twój incydent</h2>
     <div id="session" class="card"></div>
 
+    <section id="pm" class="hidden">
+      <h2>Post-mortem</h2>
+      <div id="pmCard" class="card"></div>
+    </section>
+
     <h2>Scenariusze</h2>
     <div id="scenarios" class="grid"></div>
 
@@ -61,9 +71,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="/sign.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-let sb, token = null, poll = null;
+let sb, token = null, poll = null, userId = "", pmLoaded = false, pmData = null, rotate = false;
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" } });
@@ -96,13 +107,15 @@ kubectl logs deploy/api --tail=50</pre>
   }
   if (s.status === "graded") {
     html += `<p style="margin-top:12px">Wynik: <b>${esc(s.score)}</b> · poziom <b>${esc(s.tier)}</b> (podpisany przez grader).
-      Teraz napisz post-mortem: <code>framework/postmortem.py</code>. Szczegóły w docs/debrief.md.</p>`;
+      Teraz napisz post-mortem poniżej: sprawdzamy, czy rozumiesz, co się stało.</p>`;
   }
   if (s.status === "failed") html += `<pre>${esc(s.log_tail)}</pre><button class="ghost" id="stop">Wyczyść</button>`;
   el.innerHTML = html;
+  $("pm").classList.toggle("hidden", s.status !== "graded");
+  if (s.status === "graded" && !pmLoaded) loadPostmortem();
   $("kc")?.addEventListener("click", downloadKubeconfig);
   $("grade")?.addEventListener("click", grade);
-  $("stop")?.addEventListener("click", async () => { await api("/api/sessions/mine/stop", { method: "POST" }); refresh(); });
+  $("stop")?.addEventListener("click", async () => { await api("/api/sessions/mine/stop", { method: "POST" }); pmLoaded = false; refresh(); });
 }
 
 async function downloadKubeconfig() {
@@ -165,6 +178,80 @@ async function loadLeague() {
     : '<span class="muted">Nikt jeszcze nie zapunktował w tym miesiącu.</span>';
 }
 
+// ---- post-mortem: written here, signed here, checked by the grader against its evidence ----
+function setFront(md, key, value) {
+  const re = new RegExp("^" + key + ":.*$", "m");
+  return re.test(md) ? md.replace(re, key + ": " + value) : md;
+}
+function chosenCauses() { return [...document.querySelectorAll(".cause input:checked")].map(i => i.value); }
+function currentMarkdown() { return setFront($("pmText").value, "causes", chosenCauses().join(", ")); }
+
+function renderVerdict(r) {
+  const c = r.causes, f = r.facts || {};
+  const list = (a) => a.length ? a.map(x => `<code>${esc(x)}</code>`).join(", ") : "–";
+  return `<p>Werdykt: <b class="${r.verdict === "verified" ? "ok" : "bad"}">${esc(r.verdict)}</b> · wynik <b>${esc(r.score)}</b>/100
+    <span class="muted">(podpisany przez grader, klucz autora ${esc(r.author_key_sha256.slice(0, 12))}…)</span></p>
+    <table><tr><th>przyczyny potwierdzone</th><td>${list(c.confirmed)}</td></tr>
+    <tr><th>czynniki współsprawcze</th><td>${list(c.contributing)}</td></tr>
+    <tr><th>pominięte</th><td>${list(c.missed)}</td></tr>
+    <tr><th>błędne</th><td>${list(c.wrong)}</td></tr>
+    <tr><th>czas naprawy</th><td>pomyłka o ${esc(r.timeline.mitigated_error_s)} s (tolerancja ${esc(r.timeline.tolerance_s)} s)</td></tr>
+    <tr><th>fakty z dowodów</th><td>${(f.missing || []).length ? "brakuje: " + f.missing.map(k => esc(f.hints[k])).join("; ") : "wszystkie zacytowane"}</td></tr></table>`;
+}
+
+async function loadPostmortem() {
+  pmLoaded = true;
+  const card = $("pmCard");
+  const r = await api("/api/sessions/mine/postmortem");
+  if (!r.ok) { card.textContent = r.body.error; pmLoaded = false; return; }
+  if (r.body.done) { card.innerHTML = renderVerdict(r.body.done) + `<p class="muted">Jeden post-mortem na próbę. Kolejna próba ma nowy seed.</p>`; return; }
+  pmData = r.body;
+  if (!(await VantageSign.supported())) {
+    card.innerHTML = `<p class="warn">Ta przeglądarka nie obsługuje podpisów Ed25519 (WebCrypto). Użyj Chrome 137+, Firefox 129+ albo Safari 17+, albo wyślij post-mortem z CLI (<code>framework/postmortem.py</code>).</p>`;
+    return;
+  }
+  let pair = await VantageSign.loadKey(userId).catch(() => null);
+  const fresh = !pair;
+  if (fresh) { pair = await VantageSign.generate(); await VantageSign.saveKey(userId, pair).catch(() => {}); }
+  const info = await VantageSign.publicInfo(pair);
+  card.innerHTML = `<p class="muted">Zaznacz przyczyny, które <b>naprawdę</b> wystąpiły w tym incydencie. Część to przynęty, a każda błędna kosztuje punkty.
+      Podaj czasy w UTC (np. <code>${new Date(pmData.template.match(/\d\d:\d\d:\d\dZ/) ? Date.now() : Date.now()).toISOString().slice(0, 19)}Z</code>). Czas przywrócenia usługi sprawdzimy z próbkami gradera,
+      a w treści cytuj konkretne wartości z dowodów (numery zmian, nazwy, liczby).</p>
+    <div id="causes">${pmData.causes.map(c => `<label class="cause"><input type="checkbox" value="${esc(c.id)}"><span>${esc(c.text)} <code>${esc(c.id)}</code></span></label>`).join("")}</div>
+    <textarea id="pmText" spellcheck="false">${esc(pmData.template)}</textarea>
+    <div class="row" style="margin-top:10px"><button class="ghost" id="pmLint">Sprawdź format</button>
+      <button id="pmSend">Podpisz i wyślij (raz na próbę)</button></div>
+    <ul id="pmProblems" class="problems"></ul>
+    <p class="muted" style="font-size:13px">Podpis: klucz Ed25519 <code>${esc(info.fingerprint.slice(0, 16))}…</code>
+      ${fresh ? "(nowy, zapisany tylko w tej przeglądarce; nie da się go z niej wyeksportować)" : "(zapisany w tej przeglądarce)"}.
+      Utracisz go z danymi witryny? Przy następnym razie zaznacz „wymień klucz”.
+      <label><input type="checkbox" id="pmRotate" style="width:auto"> wymień klucz</label></p>`;
+  rotate = false;
+  $("pmLint").addEventListener("click", lintPostmortem);
+  $("pmSend").addEventListener("click", () => sendPostmortem(pair));
+}
+
+async function lintPostmortem() {
+  const r = await api("/api/sessions/mine/postmortem/lint", { method: "POST", body: JSON.stringify({ markdown: currentMarkdown() }) });
+  const problems = r.ok ? r.body.problems : [r.body.error];
+  $("pmProblems").innerHTML = problems.length ? problems.map(p => `<li>${esc(p)}</li>`).join("") : '<li style="color:var(--ok)">Format w porządku. Nic nie zostało wysłane.</li>';
+  return problems.length === 0;
+}
+
+async function sendPostmortem(pair) {
+  if (!(await lintPostmortem())) return;
+  if (!confirm("Post-mortem można wysłać tylko raz dla tej próby. Wysłać?")) return;
+  $("pmSend").disabled = true; $("pmSend").textContent = "wysyłanie…";
+  const md = currentMarkdown();
+  const signed = await VantageSign.sign(pair, pmData.attempt_id, md);
+  const r = await api("/api/sessions/mine/postmortem", { method: "POST",
+    body: JSON.stringify({ markdown: md, pubkey: signed.pubkey, signature: signed.signature, rotate_key: $("pmRotate").checked }) });
+  if (r.ok) { $("pmCard").innerHTML = renderVerdict(r.body.result); loadProfile(); return; }
+  $("pmSend").disabled = false; $("pmSend").textContent = "Podpisz i wyślij (raz na próbę)";
+  const msgs = r.body.problems || [r.body.error];
+  $("pmProblems").innerHTML = msgs.map(p => `<li>${esc(p)}</li>`).join("");
+}
+
 function showErr(m) { $("err").textContent = m || ""; if (m) setTimeout(() => $("err").textContent = "", 8000); }
 
 async function main() {
@@ -184,6 +271,7 @@ async function main() {
 function boot(session) {
   token = session.access_token;
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  userId = session.user.email || session.user.id;
   $("who").innerHTML = `${esc(session.user.email)} <button class="ghost" id="out">Wyloguj</button>`;
   $("out").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
   // the access token rotates hourly; supabase-js refreshes it, we pick up the new one

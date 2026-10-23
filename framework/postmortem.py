@@ -41,7 +41,8 @@ def catalog(scn):
     path = os.path.join(scn, "generated", "debrief.json")
     if not os.path.exists(path):
         die(f"{os.path.basename(os.path.abspath(scn))} has no post-mortem catalog (generated/debrief.json)")
-    return json.load(open(path))
+    with open(path) as f:
+        return json.load(f)
 
 
 def attempt_id(scn):
@@ -62,22 +63,13 @@ def keygen():
     return pub, hashlib.sha256(der).hexdigest()
 
 
-def template(scn, out=None):
-    cat, aid = catalog(scn), attempt_id(scn)
-    start = None
-    report = os.path.join(state_dir(scn), "evidence", "server_report.json")
-    if os.path.exists(report):
-        start = json.load(open(report))["result"]["incident_start"]
+def render_template(title, aid, cat, start=None, notes=True):
+    """The skeleton for one attempt; also used by the hosted-range panel (notes=False: the
+    panel shows the cause list as a checklist instead of a comment block)."""
     t = time.strftime("%H:%M:%SZ", time.gmtime(start)) if start else "HH:MM:SSZ"
     width = max(len(c["id"]) for c in cat["causes"])
     lines = "\n".join(f"  {c['id']:<{width}}  {c['text']}" for c in cat["causes"])
-    text = f"""---
-attempt: {aid}
-detected:
-mitigated:
-causes:
----
-<!--
+    comment = f"""<!--
 detected / mitigated: UTC, e.g. {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(start or time.time()))}.
   'mitigated' is checked against the grader's probes (when users were served again).
 causes: comma-separated ids of what THIS incident had (root causes and contributing
@@ -86,7 +78,14 @@ causes: comma-separated ids of what THIS incident had (root causes and contribut
 Timeline bullets start with a UTC time; action items with [prevent], [detect],
 [mitigate] or [process]. One post-mortem per attempt: run 'make lint-postmortem' first.
 -->
-# Post-mortem: {os.path.basename(os.path.abspath(scn))}
+""" if notes else ""
+    return f"""---
+attempt: {aid}
+detected:
+mitigated:
+causes:
+---
+{comment}# Post-mortem: {title}
 
 ## Summary
 
@@ -103,6 +102,15 @@ Timeline bullets start with a UTC time; action items with [prevent], [detect],
 - [prevent]
 - [detect]
 """
+
+
+def template(scn, out=None):
+    cat, aid = catalog(scn), attempt_id(scn)
+    start = None
+    report = os.path.join(state_dir(scn), "evidence", "server_report.json")
+    if os.path.exists(report):
+        start = json.load(open(report))["result"]["incident_start"]
+    text = render_template(os.path.basename(os.path.abspath(scn)), aid, cat, start)
     if out:
         if os.path.exists(out):
             die(f"{out} exists; edit it, or remove it for a fresh template")

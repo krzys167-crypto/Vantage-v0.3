@@ -17,6 +17,10 @@ then drives range/range.sh for that user:
   POST /api/sessions/mine/grade   assertions on the platform + signed grade
   POST /api/sessions/mine/stop    tear down
   GET  /api/profile, /api/league  my signed profile / the league, proxied from the grader
+  GET  /api/sessions/mine/postmortem        template + cause checklist for my graded attempt (or the verdict if sent)
+  POST /api/sessions/mine/postmortem/lint   {markdown} -> format problems, nothing is sent
+  POST /api/sessions/mine/postmortem        {markdown, pubkey, signature[, rotate_key]} -> the grader's signed verdict
+  GET  /sign.js                             browser-side Ed25519 signing (private key stays in the browser)
 
 Env: GRADER_URL, the grader's identity settings (GRADER_JWKS_URL + GRADER_JWT_ISSUER
 and/or GRADER_USER_SECRET), RANGE_MAX_SESSIONS (3), RANGE_SESSION_TTL_S (14400),
@@ -42,13 +46,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "grader"))
 import server as grader  # noqa: E402  (authenticate: same identity rules as the grader)
 sys.path.insert(0, os.path.join(ROOT, "range"))
+sys.path.insert(0, os.path.join(ROOT, "framework"))
 from telemetry import Telemetry  # noqa: E402
+import debrief as pm  # noqa: E402
+import postmortem  # noqa: E402
 
 RANGE_SH = os.environ.get("RANGE_SH", os.path.join(ROOT, "range", "range.sh"))
 SESSIONS_DIR = os.environ.get("RANGE_SESSIONS", os.path.join(ROOT, "range", ".sessions"))
 MAX_SESSIONS = int(os.environ.get("RANGE_MAX_SESSIONS", "3"))
 TTL_S = float(os.environ.get("RANGE_SESSION_TTL_S", "14400"))
 PANEL = os.path.join(ROOT, "range", "panel", "index.html")
+SIGN_JS = os.path.join(ROOT, "range", "panel", "sign.js")
+MAX_BODY = 80_000          # a post-mortem is limited to 64 kB (grader), plus JSON overhead
 ADMIN_TOKEN = os.environ.get("RANGE_ADMIN_TOKEN", "")      # GET /api/admin/funnel
 NOPROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -164,6 +173,54 @@ class Range:
                 s["status"] = "expired"
                 self.ev(s, "expired")
 
+    # --- post-mortem (the user signs in the browser; the controller holds the attempt token) ---
+    def attempt(self, user):
+        """(session, attempt.json) of a graded attempt, or (None, error reply)."""
+        s = self.by_user.get(user)
+        if not s or s.get("status") != "graded":
+            return None, (409, {"error": "grade the incident first: the post-mortem is checked against its evidence"})
+        with open(os.path.join(SESSIONS_DIR, s["id"], "state", "attempt.json")) as f:
+            return s, json.load(f)
+
+    def postmortem_get(self, user):
+        s, a = self.attempt(user)
+        if s is None:
+            return a
+        code, done = grader_call("GET", f"/v1/attempts/{a['attempt_id']}/debrief", token=a["token"])
+        if code == 200:
+            return 200, {"attempt_id": a["attempt_id"], "done": done["result"], "signature": done["signature"]}
+        scn = os.path.join(ROOT, "scenarios", s["scenario"])
+        cat = postmortem.catalog(scn)
+        start = s["result"]["incident_start"]
+        # only id and text: "kind" and "when" would tell decoys from real causes and name the variant
+        return 200, {"attempt_id": a["attempt_id"], "scenario": s["scenario"],
+                     "causes": [{"id": c["id"], "text": c["text"]} for c in cat["causes"]],
+                     "template": postmortem.render_template(s["scenario"], a["attempt_id"], cat, start, notes=False)}
+
+    def postmortem_lint(self, user, md):
+        s, a = self.attempt(user)
+        if s is None:
+            return a
+        cat = postmortem.catalog(os.path.join(ROOT, "scenarios", s["scenario"]))
+        return 200, {"problems": pm.lint(pm.parse(str(md)), cat, a["attempt_id"])}
+
+    def postmortem_send(self, user, body):
+        s, a = self.attempt(user)
+        if s is None:
+            return a
+        send = {k: body.get(k) for k in ("markdown", "pubkey", "signature")}
+        if body.get("rotate_key"):
+            send["rotate_key"] = True
+        code, res = grader_call("POST", f"/v1/attempts/{a['attempt_id']}/debrief", send, token=a["token"])
+        if code == 200:
+            r = res["result"]
+            evid = os.path.join(SESSIONS_DIR, s["id"], "state", "evidence")
+            os.makedirs(evid, exist_ok=True)
+            with open(os.path.join(evid, "debrief_report.json"), "w") as f:
+                json.dump(res, f, indent=2)
+            self.ev(s, "debriefed", score=r.get("score"), verdict=r.get("verdict"))
+        return code, res
+
     @staticmethod
     def view(s):
         return {k: s.get(k) for k in ("scenario", "status", "created", "ready_at", "id")} | {
@@ -172,15 +229,26 @@ class Range:
             "log_tail": s.get("log", "")[-600:] if s["status"] == "failed" else None}
 
 
-def grader_get(path):
+def grader_call(method, path, body=None, token=None):
+    """The grader's JSON answer and status code; its error bodies pass through (422 lists problems)."""
     url = os.environ.get("GRADER_URL", "http://127.0.0.1:8700").rstrip("/") + path
+    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json",
+                                          **({"Authorization": f"Bearer {token}"} if token else {})})
     try:
-        with NOPROXY.open(url, timeout=10) as r:
+        with NOPROXY.open(req, timeout=30) as r:
             return r.status, json.loads(r.read())
     except urllib.error.HTTPError as e:
-        return e.code, {"error": f"grader: http {e.code}"}
+        try:
+            return e.code, json.loads(e.read())
+        except ValueError:
+            return e.code, {"error": f"grader: http {e.code}"}
     except OSError as e:
         return 502, {"error": f"grader unreachable: {e}"}
+
+
+def grader_get(path):
+    return grader_call("GET", path)
 
 
 def make_handler(rng):
@@ -206,6 +274,9 @@ def make_handler(rng):
                 if method == "GET" and path == "/":
                     with open(PANEL) as f:
                         return self.reply(200, f.read(), "text/html; charset=utf-8")
+                if method == "GET" and path == "/sign.js":
+                    with open(SIGN_JS) as f:
+                        return self.reply(200, f.read(), "text/javascript; charset=utf-8")
                 if method == "GET" and path == "/config.json":
                     return self.reply(200, {"supabase_url": os.environ.get("PANEL_SUPABASE_URL", ""),
                                             "supabase_key": os.environ.get("PANEL_SUPABASE_KEY", "")})
@@ -226,7 +297,9 @@ def make_handler(rng):
                 body = {}
                 if method == "POST":
                     n = int(self.headers.get("Content-Length") or 0)
-                    body = json.loads(self.rfile.read(min(n, 10_000)) or b"{}")
+                    if n > MAX_BODY:
+                        return self.reply(413, {"error": "too large"})
+                    body = json.loads(self.rfile.read(n) or b"{}")
                 routes = {
                     ("POST", "/api/sessions"): lambda: rng.start(user, str(body.get("scenario", "")), tok),
                     ("GET", "/api/sessions/mine"): lambda: (200, {"user": user, "session": rng.view(rng.by_user[user])})
@@ -234,6 +307,9 @@ def make_handler(rng):
                     ("GET", "/api/sessions/mine/kubeconfig"): lambda: rng.kubeconfig(user),
                     ("POST", "/api/sessions/mine/grade"): lambda: rng.grade(user),
                     ("POST", "/api/sessions/mine/stop"): lambda: rng.stop(user),
+                    ("GET", "/api/sessions/mine/postmortem"): lambda: rng.postmortem_get(user),
+                    ("POST", "/api/sessions/mine/postmortem/lint"): lambda: rng.postmortem_lint(user, body.get("markdown")),
+                    ("POST", "/api/sessions/mine/postmortem"): lambda: rng.postmortem_send(user, body),
                     ("GET", "/api/profile"): lambda: grader_get(f"/v1/users/{urllib.parse.quote(user, safe='')}/profile"),
                 }
                 fn = routes.get((method, path))

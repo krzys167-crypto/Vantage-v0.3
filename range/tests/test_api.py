@@ -23,9 +23,10 @@ echo "$*|${VANTAGE_USER_TOKEN:+token}" >> "$RANGE_SESSIONS/calls.log"
 case "$1" in
   start) [[ "$2" == boom ]] && { echo "xx cluster on fire" >&2; exit 1; }
          id=$(printf '%08x' $RANDOM$RANDOM); mkdir -p "$RANGE_SESSIONS/$id/state/evidence"
+         echo '{"attempt_id": "aaaabbbbccccdddd", "token": "attempt-secret-'$id'"}' > "$RANGE_SESSIONS/$id/state/attempt.json"
          echo "apiVersion: v1 # for $3" > "$RANGE_SESSIONS/$id/trainee.kubeconfig"
          echo "==> session $id"; echo "$id" ;;
-  grade) echo '{"result": {"tier": "merit", "score": 84.2, "attested": true}}' > "$RANGE_SESSIONS/$2/state/evidence/server_report.json" ;;
+  grade) echo '{"result": {"tier": "merit", "score": 84.2, "attested": true, "incident_start": 1791500000.0}}' > "$RANGE_SESSIONS/$2/state/evidence/server_report.json" ;;
   stop)  echo stopped ;;
 esac
 ''')
@@ -38,9 +39,58 @@ import test_jwks  # noqa: E402
 OP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
+class FakeGrader(threading.Thread):
+    """Just enough of the grader's debrief endpoint: checks the attempt token, rejects text containing BAD."""
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.received, self.done = [], None
+        outer = self
+        import http.server
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def reply(self, code, body):
+                data = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def authed(self):
+                return (self.headers.get("Authorization") or "").startswith("Bearer attempt-secret-")
+
+            def do_GET(self):
+                if not self.authed():
+                    return self.reply(403, {"error": "bad token"})
+                if outer.done:
+                    return self.reply(200, outer.done)
+                self.reply(404, {"error": "no post-mortem yet"})
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                outer.received.append({"path": self.path, "auth": self.headers.get("Authorization"), **body})
+                if not self.authed():
+                    return self.reply(403, {"error": "bad token"})
+                if "BAD" in body["markdown"]:
+                    return self.reply(422, {"error": "post-mortem rejected", "problems": ["unknown cause ids ['x']"]})
+                outer.done = {"result": {"kind": "debrief", "score": 91.0, "verdict": "verified"}, "signature": "sig"}
+                self.reply(200, outer.done)
+
+            def log_message(self, *a):
+                pass
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
+
+    def run(self):
+        self.srv.serve_forever()
+
+
 class API(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.fake = FakeGrader()
+        cls.fake.start()
+        os.environ["GRADER_URL"] = cls.fake.url
         cls.key = test_jwks.Key(TMP, "EC", "idp-1")
         path = os.path.join(TMP, "jwks.json")
         json.dump({"keys": [cls.key.jwk]}, open(path, "w"))
@@ -96,7 +146,8 @@ class API(unittest.TestCase):
         code, res = self.call("POST", "/api/sessions/mine/grade", u)
         self.assertEqual((code, res["result"]["tier"]), (200, "merit"))
         self.assertEqual(self.call("POST", "/api/sessions/mine/stop", u)[1]["session"]["status"], "stopped")
-        calls = open(os.path.join(TMP, "calls.log")).read()
+        with open(os.path.join(TMP, "calls.log")) as f:
+            calls = f.read()
         self.assertIn(f"start dns-poison {u}|token", calls)      # the user's own IdP token reaches the grader
         # the admin funnel saw this user's whole path, and only admins see it
         self.assertEqual(self.call("GET", "/api/admin/funnel", u)[0], 403)
@@ -107,6 +158,47 @@ class API(unittest.TestCase):
             f = json.loads(r.read())
         self.assertGreaterEqual(f["stages"]["graded"], 1)
         self.assertGreaterEqual(f["stages"]["kubeconfig"], 1)
+
+    def test_postmortem_through_the_panel_api(self):
+        u = "pm@x"
+        self.assertEqual(self.call("GET", "/api/sessions/mine/postmortem", u)[0], 409)         # no session yet
+        self.call("POST", "/api/sessions", u, {"scenario": "retry-storm"})
+        self.wait(u, "ready")
+        self.assertEqual(self.call("GET", "/api/sessions/mine/postmortem", u)[0], 409)         # not graded yet
+        self.call("POST", "/api/sessions/mine/grade", u)
+        code, pmr = self.call("GET", "/api/sessions/mine/postmortem", u)
+        self.assertEqual(code, 200, pmr)
+        self.assertEqual(pmr["attempt_id"], "aaaabbbbccccdddd")
+        self.assertIn("attempt: aaaabbbbccccdddd", pmr["template"])
+        self.assertIn("22:53:20Z incident started", pmr["template"])        # incident_start 1791500000
+        self.assertEqual(len(pmr["causes"]), 8)                              # roots + contributing + decoys, unlabelled
+        self.assertNotIn("kind", pmr["causes"][0])
+        self.assertNotIn("when", json.dumps(pmr))                            # which variant happened stays server-side
+        self.assertNotIn("attempt-secret", json.dumps(pmr))                  # the attempt token never reaches the browser
+        # format check is free and local
+        probs = self.call("POST", "/api/sessions/mine/postmortem/lint", u, {"markdown": pmr["template"]})[1]["problems"]
+        self.assertTrue(any("'detected' is missing" in p for p in probs), probs)
+        other = pmr["template"].replace("aaaabbbbccccdddd", "0000000000000000")
+        self.assertTrue(any("not this attempt" in p for p in
+                            self.call("POST", "/api/sessions/mine/postmortem/lint", u, {"markdown": other})[1]["problems"]))
+        self.assertEqual(self.fake.received, [])                              # lint sent nothing to the grader
+        # the grader's rejection (422 + problems) reaches the panel unchanged
+        code, res = self.call("POST", "/api/sessions/mine/postmortem", u,
+                              {"markdown": "BAD", "pubkey": "P", "signature": "S"})
+        self.assertEqual((code, res["problems"]), (422, ["unknown cause ids ['x']"]))
+        # a good one: signature, key and rotate flag are forwarded with the attempt token
+        code, res = self.call("POST", "/api/sessions/mine/postmortem", u,
+                              {"markdown": "ok", "pubkey": "PEM", "signature": "SIG", "rotate_key": True})
+        self.assertEqual((code, res["result"]["verdict"]), (200, "verified"))
+        sent = self.fake.received[-1]
+        self.assertEqual((sent["path"], sent["pubkey"], sent["signature"], sent["rotate_key"]),
+                         ("/v1/attempts/aaaabbbbccccdddd/debrief", "PEM", "SIG", True))
+        self.assertTrue(sent["auth"].startswith("Bearer attempt-secret-"))
+        # afterwards the panel gets the verdict instead of a template
+        code, again = self.call("GET", "/api/sessions/mine/postmortem", u)
+        self.assertEqual(again["done"]["verdict"], "verified")
+        self.assertEqual(self.call("GET", "/sign.js", u)[0], 200)
+        self.call("POST", "/api/sessions/mine/stop", u)
 
     def test_failed_start_is_reported_and_capacity_is_bounded(self):
         self.call("POST", "/api/sessions", "boom@x", {"scenario": "dns-poison"})
@@ -142,6 +234,7 @@ class Funnel(unittest.TestCase):
         # ann: full pass; bob: never downloads the kubeconfig; cid: fails, comes back next day and passes
         at(0, "ann@x", "start"); at(60, "ann@x", "ready"); at(30, "ann@x", "kubeconfig")
         at(600, "ann@x", "graded", tier="merit", attested=True)
+        at(120, "ann@x", "debriefed", score=93.0, verdict="verified")
         at(5, "bob@x", "start"); at(90, "bob@x", "ready")
         at(5, "cid@x", "start"); at(70, "cid@x", "ready"); at(10, "cid@x", "kubeconfig")
         at(900, "cid@x", "graded", tier="fail", attested=True)
@@ -149,6 +242,7 @@ class Funnel(unittest.TestCase):
         at(400, "cid@x", "graded", tier="pass", attested=True)
         f = t.funnel()
         self.assertEqual(f["stages"], {"start": 4, "ready": 4, "kubeconfig": 3, "graded": 3, "passed": 2})
+        self.assertEqual((f["debriefed"], f["conversion"]["graded->debriefed"]), (1, 0.333))   # 1 of 3 graded
         self.assertEqual(f["stuck_after"]["ready"], 1)          # bob
         self.assertEqual(f["stuck_after"]["graded"], 1)         # cid's failed first try
         self.assertEqual((f["users"], f["returned_users"]), (3, 1))

@@ -9,9 +9,9 @@ as their league alias (sha256 prefix), never as e-mail addresses.
 
 Funnel stages, per (user, session):
     start -> ready -> kubeconfig -> graded -> passed
-plus "returned": users with sessions on two or more distinct days. (Post-mortems
-are sent from the CLI straight to the grader; "debriefed" joins the funnel once
-the panel sends them.)
+plus "returned": users with sessions on two or more distinct days, and
+"debriefed" (a post-mortem sent through the panel; reported next to the stages
+because it needs a graded attempt, not a passed one).
 """
 import json
 import os
@@ -63,7 +63,7 @@ class Telemetry:
                 continue
             a = attempts[key]
             d = json.loads(data or "{}")
-            stage = {"ready": "ready", "kubeconfig": "kubeconfig", "graded": "graded"}.get(ev)
+            stage = {"ready": "ready", "kubeconfig": "kubeconfig", "graded": "graded", "debriefed": "debriefed"}.get(ev)
             if stage and stage not in a:
                 a[stage] = ts
             if ev == "graded" and d.get("attested") and d.get("tier") in ("pass", "merit", "elite") and "passed" not in a:
@@ -76,8 +76,11 @@ class Telemetry:
             return round(statistics.median(vals), 1) if vals else None
 
         counts = {s: sum(1 for a in attempts.values() if s in a) for s in STAGES}
+        debriefed = sum(1 for a in attempts.values() if "debriefed" in a)
+        graded = counts["graded"]
         conv = {f"{a}->{b}": (round(counts[b] / counts[a], 3) if counts[a] else None)
                 for a, b in zip(STAGES, STAGES[1:])}
+        conv["graded->debriefed"] = round(debriefed / graded, 3) if graded else None
         times = {
             "start->ready_s": med([(a["start"], a["ready"]) for a in attempts.values() if "ready" in a]),
             "ready->kubeconfig_s": med([(a["ready"], a["kubeconfig"]) for a in attempts.values()
@@ -95,6 +98,6 @@ class Telemetry:
                  for i, s in enumerate(STAGES[:-1])}
         return {"since": since, "attempts": len(attempts), "users": len(days),
                 "returned_users": sum(1 for d in days.values() if len(d) >= 2),
-                "stages": counts, "conversion": conv, "median_times": times, "stuck_after": stuck,
+                "stages": counts, "debriefed": debriefed, "conversion": conv, "median_times": times, "stuck_after": stuck,
                 "failures": sum(len(a.get("failures", [])) for a in attempts.values()),
                 "per_scenario": per_scenario}

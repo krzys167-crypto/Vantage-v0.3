@@ -67,6 +67,21 @@ Wypisanie całego katalogu daje komplet przyczyn, ale nie daje `verified`. Popra
 
 Odpowiedź zawiera informację zwrotną: przyczyny potwierdzone, pominięte i błędne, błąd `mitigated` w sekundach i brakujące fakty. Brakujące fakty są podane tylko jako opis tego, czego szukać. Ich wartości nigdy nie trafiają do odpowiedzi. Wolno ją zobaczyć, bo post-mortem jest jeden na próbę, a kolejna próba ma nowy seed.
 
+## Post-mortem w panelu WWW
+
+Na hosted range uczestnik nie potrzebuje wiersza poleceń ([docs/deploy.md](deploy.md)). Po ocenie panel pokazuje kartę „Post-mortem”:
+
+1. szablon z identyfikatorem próby i godziną startu incydentu;
+2. listę przyczyn do zaznaczenia. Dostaje wyłącznie `id` i opis; to, które są przynętami i który wariant wylosowano, zostaje po stronie serwera;
+3. „Sprawdź format” (`POST /api/sessions/mine/postmortem/lint`): te same reguły co `make lint-postmortem`, nic nie jest wysyłane;
+4. „Podpisz i wyślij”: przeglądarka podpisuje tekst kluczem **Ed25519 z WebCrypto** (`range/panel/sign.js`) i wysyła go przez kontroler do gradera, który sprawdza go względem dowodów jak zawsze. Po wysłaniu panel pokazuje werdykt: przyczyny potwierdzone, pominięte i błędne, błąd czasu naprawy i brakujące fakty.
+
+Klucz prywatny powstaje w przeglądarce jako **niewyeksportowalny** (`extractable: false`) i leży w IndexedDB. Nie opuszcza przeglądarki, nawet dla kodu panelu. Token próby, którym kontroler mówi z graderem, nigdy nie trafia do przeglądarki. Wymagane są Chrome 137+, Firefox 129+ albo Safari 17+. W starszych przeglądarkach panel odsyła do CLI.
+
+**Utrata klucza.** Klucz znika razem z danymi witryny. Kolejny post-mortem podpisany nowym kluczem dostaje wtedy 403, bo klucz jest przypisany do użytkownika. Poświadczony użytkownik (próba założona z tokenem od platformy) może go jawnie wymienić zaznaczeniem „wymień klucz” (`rotate_key: true`). Podpisany werdykt zapisuje wtedy `trust.author: user key replaced by the vouched user` oraz `replaced_key_sha256`, czyli odcisk wymienionego klucza, więc wymiana jest widoczna dla każdego, kto sprawdza werdykt. Użytkownik samodeklarowany nie ma przypisanego klucza, więc nie ma czego wymieniać.
+
+Testy: `range/tests/test_webcrypto.py` podpisuje prawdziwym `sign.js` w Node i sprawdza podpis kodem gradera, także dla polskich znaków. `range/tests/test_panel_browser.py` przechodzi cały przebieg w prawdziwym Chromium, w CI jako job `panel-browser`.
+
 ## Zasady, które chronią wynik
 
 - **Jeden post-mortem na próbę**, najpóźniej 24 h po `submit` (`GRADER_DEBRIEF_TTL_S`). Nie da się więc zgadywać przyczyn metodą prób i błędów.
