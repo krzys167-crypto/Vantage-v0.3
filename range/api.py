@@ -225,8 +225,15 @@ def make_handler(rng):
                 user, tok = self.user()
                 body = {}
                 if method == "POST":
-                    n = int(self.headers.get("Content-Length") or 0)
-                    body = json.loads(self.rfile.read(min(n, 10_000)) or b"{}")
+                    try:
+                        n = int(self.headers.get("Content-Length") or 0)
+                    except ValueError:
+                        n = -1
+                    if n < 0:        # read(-1) would block until the client hangs up
+                        return self.reply(400, {"error": "bad Content-Length"})
+                    if n > 10_000:
+                        return self.reply(413, {"error": "too large"})
+                    body = json.loads(self.rfile.read(n) or b"{}")
                 routes = {
                     ("POST", "/api/sessions"): lambda: rng.start(user, str(body.get("scenario", "")), tok),
                     ("GET", "/api/sessions/mine"): lambda: (200, {"user": user, "session": rng.view(rng.by_user[user])})
