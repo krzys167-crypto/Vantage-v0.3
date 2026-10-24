@@ -5,20 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vantage Range</title>
 <style>
-  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ee; --muted:#9aa3b2; --ok:#3fb27f; --bad:#e5534b; --warn:#d8a54a; --acc:#6aa9ff; }
-  @media (prefers-color-scheme: light) { :root { --bg:#f6f7f9; --panel:#fff; --line:#dde1e7; --text:#151821; --muted:#5b6474; --acc:#2563eb; } }
+  :root { color-scheme: dark; --bg:#050b1a; --bg2:#0a1630; --panel:rgba(14,28,58,.72); --line:#1f3a6e; --text:#e8edf8; --muted:#8fa2c4;
+          --ok:#3fcf94; --bad:#ff6b63; --warn:#e3b04b; --acc:#2f7bff; --gold:#e3b04b; --gold2:#f6d98a; --glow:0 0 22px rgba(47,123,255,.45); }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-  main { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
-  header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
-  h1 { font-size: 20px; margin: 0; letter-spacing:.2px } h1 span { color: var(--muted); font-weight: 400 }
-  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 28px 0 10px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  body { margin:0; color:var(--text); font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; min-height:100vh;
+         background: radial-gradient(1100px 520px at 50% -80px, rgba(47,123,255,.28), transparent 70%),
+                     radial-gradient(700px 400px at 90% 30%, rgba(227,176,75,.10), transparent 70%), linear-gradient(var(--bg2), var(--bg) 480px) var(--bg); }
+  main { max-width: 980px; margin: 0 auto; padding: 0 16px 64px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; padding:18px 0; border-bottom:1px solid rgba(47,123,255,.18); }
+  h1 { font-size: 20px; margin: 0; letter-spacing:.2px; display:flex; align-items:center; gap:10px } h1 span { color: var(--muted); font-weight: 400; font-size:14px }
+  .ring { width:26px; height:26px; border-radius:50%; border:3px solid var(--gold); box-shadow:0 0 12px rgba(227,176,75,.5) }
+  .gold { background:linear-gradient(90deg,var(--gold2),var(--gold)); -webkit-background-clip:text; background-clip:text; color:transparent }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .28em; color: var(--gold); margin: 34px 0 12px; display:flex; align-items:center; gap:12px }
+  h2::after { content:""; flex:1; height:1px; background:linear-gradient(90deg, rgba(227,176,75,.5), transparent) }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; backdrop-filter: blur(6px); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
   .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap:10px; }
   .scn { cursor:pointer; text-align:left; color:inherit; font:inherit; }
-  .scn:hover { border-color: var(--acc); } .scn b { display:block } .scn small { color:var(--muted) }
-  button, .btn { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer; text-decoration:none; display:inline-block }
-  button.ghost { background:transparent; color:var(--text); border:1px solid var(--line) }
+  .scn:hover { border-color: var(--acc); box-shadow: var(--glow); } .scn b { display:block } .scn small { color:var(--muted) }
+  button, .btn { background:linear-gradient(180deg,#3d8bff,#1f5fe0); color:#fff; border:0; border-radius:999px; padding:9px 18px; font:inherit; font-weight:600; letter-spacing:.04em; cursor:pointer; text-decoration:none; display:inline-block; box-shadow: var(--glow) }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); box-shadow:none }
+  .btn.gold-o { background:transparent; color:var(--gold); border:1px solid var(--gold); box-shadow:none; font-size:13px; letter-spacing:.14em; text-transform:uppercase }
   button:disabled { opacity:.5; cursor:default }
   input { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:inherit; width:100% }
   textarea { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px; font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; width:100%; min-height:340px; resize:vertical }
@@ -33,14 +39,50 @@
   th { color:var(--muted); font-weight:500; font-size:13px }
   .badge { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:2px 10px; margin:2px; font-size:13px }
   .hidden { display:none }
+  .hero { text-align:center; padding:54px 0 30px; position:relative }
+  .kicker { letter-spacing:.42em; text-transform:uppercase; font-size:12px; color:var(--muted) }
+  .hero h2.title { display:block; margin:10px 0 6px; font-size:clamp(40px,8vw,76px); letter-spacing:.01em; line-height:1.05; color:var(--text); text-transform:none }
+  .hero h2.title::after { display:none }
+  .hero h2.title b { font-weight:800; background:linear-gradient(180deg,#fff,#a9bde6); -webkit-background-clip:text; background-clip:text; color:transparent }
+  .hero h2.title i { font-style:normal; font-weight:800; background:linear-gradient(180deg,var(--gold2),var(--gold)); -webkit-background-clip:text; background-clip:text; color:transparent }
+  .tag { letter-spacing:.34em; text-transform:uppercase; font-weight:700; font-size:clamp(12px,2.4vw,18px); color:#9db8ff }
+  .tag em { font-style:normal; color:var(--gold); margin:0 .5em }
+  .orb { position:absolute; left:50%; top:10px; width:min(520px,90vw); aspect-ratio:1; transform:translateX(-50%); z-index:-1; border-radius:50%; opacity:.55;
+         background:radial-gradient(circle at 50% 45%, rgba(47,123,255,.35), transparent 62%);
+         border:1px solid rgba(227,176,75,.35); box-shadow:0 0 80px rgba(47,123,255,.25), inset 0 0 60px rgba(47,123,255,.2) }
+  .feats { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin-top:34px; text-align:left }
+  .feat { display:flex; gap:12px; align-items:flex-start; padding:14px; border:1px solid var(--line); border-radius:14px; background:var(--panel) }
+  .feat svg { flex:none; width:40px; height:40px; padding:9px; border-radius:50%; border:1px solid var(--line); stroke:#6fa8ff; fill:none; stroke-width:1.6; background:rgba(47,123,255,.1) }
+  .feat b { display:block } .feat small { color:var(--muted) }
+  main:has(#app:not(.hidden)) .feats { display:none } main:has(#app:not(.hidden)) .hero { padding:26px 0 4px }
+  main:has(#app:not(.hidden)) .hero h2.title { font-size:clamp(28px,5vw,44px) }
+  .oper { text-align:center; text-transform:uppercase; letter-spacing:clamp(.18em,1.6vw,.5em); font-size:11px; color:var(--gold); font-size:12px; margin-top:26px } .oper::before,.oper::after { content:"\2014\2014"; margin:0 10px; opacity:.6 }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Vantage Range <span>· incydenty produkcyjne na żywo</span></h1>
+    <h1><i class="ring"></i><span class="gold" style="font-size:20px;font-weight:700">Vantage</span> Range <span>· incydenty produkcyjne na żywo</span></h1>
     <div id="who" class="row muted"></div>
   </header>
+
+  <section class="hero">
+    <i class="orb"></i>
+    <div class="kicker">Od incydentu do zweryfikowanego wyniku</div>
+    <h2 class="title"><b>Vantage</b> <i>Range</i></h2>
+    <div class="tag">Wynik <em>=</em> dowód, nie deklaracja</div>
+    <div class="feats">
+      <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"/></svg>
+        <div><b>Dowody</b><small>Sondy i zdarzenia przyjmuje serwer, podpisane kluczem gradera.</small></div></div>
+      <div class="feat"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3zM9 12l2 2 4-4"/></svg>
+        <div><b>Bramka SLO</b><small>Stabilne okno zdrowia i ukryte asercje, bez kopiuj-wklej.</small></div></div>
+      <div class="feat"><svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.5"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="18.5" cy="18" r="2.5"/><path d="M12 8.5v4M12 12.5l-5 3.5M12 12.5l5 3.5"/></svg>
+        <div><b>Incydent per użytkownik</b><small>Seed mutuje usterki, każda próba jest inna.</small></div></div>
+      <div class="feat"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7"/></svg>
+        <div><b>Post-mortem</b><small>Podpisany Twoim kluczem, sprawdzony z dowodami.</small></div></div>
+    </div>
+    <div class="oper">Operational Practice</div>
+  </section>
 
   <section id="login" class="card hidden" style="margin-top:20px">
     <p>Zaloguj się. Wynik, odznaki i post-mortem będą przypisane do Twojego konta.</p>
