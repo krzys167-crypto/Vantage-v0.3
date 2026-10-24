@@ -267,7 +267,8 @@ class Grader:
         now = time.time()
         client_now = now + (a["clock_offset"] or 0.0)   # probe ts are on the client's clock
         flag = expected_flag(a["seed"], a["host"]) if a["host"] else None
-        accepted = rejected = 0
+        accepted = rejected = ignored = 0
+        off = a["clock_offset"] or 0.0
         with self.lock:
             last = self.db.execute("SELECT MAX(ts) FROM probes WHERE attempt=?", (a["id"],)).fetchone()[0] or 0
             for p in (body.get("probes") or [])[:2000]:
@@ -275,6 +276,13 @@ class Grader:
                     ts = float(p["ts"])
                 except (KeyError, TypeError, ValueError):
                     rejected += 1
+                    continue
+                if a["break_ts"] and ts - off < a["break_ts"]:
+                    # before the incident: on k8s the prober's log starts with the pod, so the
+                    # first push after `break` carries minutes of healthy history. It cannot
+                    # affect the score (everything is measured from the break), and it is not
+                    # tampering, so it must not cost the attempt its attestation.
+                    ignored += 1
                     continue
                 reason = None
                 if abs(ts - client_now) > SKEW_S:
@@ -294,7 +302,7 @@ class Grader:
                 last = ts
                 accepted += 1
             self.db.commit()
-        return 200, {"accepted": accepted, "rejected": rejected}
+        return 200, {"accepted": accepted, "rejected": rejected, "ignored": ignored}
 
     @staticmethod
     def hidden_trust(platform, scenario, pack):

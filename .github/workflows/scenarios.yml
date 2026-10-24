@@ -13,6 +13,7 @@ jobs:
       # schema + semantic checks, and generated/ must match scenario.yaml
       - run: python dsl/validate.py --check
       - run: python -m unittest dsl/test_lint.py -v
+      - run: python -m unittest framework/test_push.py -v
 
   grader-unit:
     runs-on: ubuntu-latest
@@ -59,7 +60,8 @@ jobs:
           USER_ID: ci@vantage
         run: |
           make ci | tee "$RUNNER_TEMP/ci.log"
-          grep -q "ATTESTED" "$RUNNER_TEMP/ci.log" && ! grep -q "NOT ATTESTED" "$RUNNER_TEMP/ci.log"
+          grep -q "ATTESTED" "$RUNNER_TEMP/ci.log"
+          if grep -q "NOT ATTESTED" "$RUNNER_TEMP/ci.log"; then echo "attempt was not attested"; exit 1; fi
           python ../../grader/verify.py .state/evidence/server_report.json "$RUNNER_TEMP/grader.pem"
       - name: post-mortem (signed by the trainee, checked against the evidence)
         working-directory: scenarios/${{ matrix.scenario }}
@@ -73,7 +75,7 @@ jobs:
           make debrief | tee "$RUNNER_TEMP/debrief.log"
           grep -q "VERIFIED" "$RUNNER_TEMP/debrief.log"
           python ../../grader/verify.py .state/evidence/debrief_report.json "$RUNNER_TEMP/grader.pem"
-          ! make debrief                                                # one per attempt
+          if make debrief; then echo "a second post-mortem must be refused"; exit 1; fi   # one per attempt
           # badges come from the signed evidence above
           python ../../framework/grader_client.py profile ci@vantage | tee "$RUNNER_TEMP/profile.log"
           grep -q "forensic" "$RUNNER_TEMP/profile.log" && grep -q "first_recovery" "$RUNNER_TEMP/profile.log"
@@ -201,7 +203,8 @@ jobs:
         env: {GRADER_URL: "http://127.0.0.1:8700", KUBE_CONTEXT: k3d-vantage}
         run: |
           bash range/range.sh grade "$SESSION" | tee "$RUNNER_TEMP/grade.log"
-          grep -q "ATTESTED" "$RUNNER_TEMP/grade.log" && ! grep -q "NOT ATTESTED" "$RUNNER_TEMP/grade.log"
+          grep -q "ATTESTED" "$RUNNER_TEMP/grade.log"
+          if grep -q "NOT ATTESTED" "$RUNNER_TEMP/grade.log"; then echo "attempt was not attested"; exit 1; fi
           grep -q "public: PASS" "$RUNNER_TEMP/grade.log"
           grep -q "trust: assertions=platform hidden=platform, private pack" "$RUNNER_TEMP/grade.log"
           python grader/verify.py "range/.sessions/$SESSION/state/evidence/server_report.json" "$RUNNER_TEMP/grader.pem"
