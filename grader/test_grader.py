@@ -488,6 +488,8 @@ Reverted both changes.
     def test_backfill_mixed_with_live_is_not_attested(self):
         a = self.start()
         self.ev(a, "break", {"host": a["host"]})
+        self.g.db.execute("UPDATE attempts SET break_ts=? WHERE id=?", (time.time() - 120, a["attempt_id"]))
+        self.g.db.commit()                                   # back-filled probes fall inside the incident
         self.live(a, 3, ok=False, dt=0.3)
         self.send(a, [{"ts": time.time() - 60 + i, "ok": True, "lat_ms": 1, "flag": a["flag"]} for i in range(30)])
         self.live(a, 18, ok=True, flag=a["flag"], dt=0.3)
