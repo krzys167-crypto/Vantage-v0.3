@@ -34,6 +34,10 @@ Można to wykorzystać jako bramkę przed `make up` albo w CI.
 
 Na Linuksie i macOS (`pwsh`) skrypt działa tylko w trybie `-CheckOnly`.
 
+## Szybki start
+
+Pierwszy incydent lokalnie, bez serwera: [docs/quickstart.md](docs/quickstart.md).
+
 ## Scenariusze
 
 | Scenariusz | Opis | Uruchomienie |
