@@ -79,6 +79,14 @@ Token admina generuje instalator (`RANGE_ADMIN_TOKEN` w `/etc/vantage/env`).
 
 ## Gdy coś nie działa po instalacji
 
+Najpierw uruchom test dymny, który sprawdza DNS, HTTPS, grader, to, że API wymaga logowania, port 6443 i (na serwerze) usługi:
+
+```bash
+sudo bash /opt/vantage/deploy/check.sh range.twojadomena.pl
+```
+
+Każda kontrola to jedna linia `ok` albo `FAIL` z podpowiedzią, kod wyjścia 0 oznacza komplet. Skrypt niczego nie zmienia i nie startuje incydentu. Jeśli coś zgłosi, zacznij od tego, a poniżej jest opis typowych przyczyn.
+
 Zacznij od logów (instalator zakłada dwie usługi systemd):
 
 ```bash

@@ -25,7 +25,7 @@ jobs:
       # panel API with a stub range.sh and real JWT checks; the installer at least parses and refuses secret keys
       - run: python -m unittest range/tests/test_api.py range/tests/test_webcrypto.py -v
       - run: |
-          bash -n deploy/install.sh
+          bash -n deploy/install.sh && bash -n deploy/check.sh
           bash deploy/install.sh --dry-run --domain range.example.com --supabase https://x.supabase.co --supabase-key sb_publishable_x >/dev/null
           ! bash deploy/install.sh --dry-run --domain range.example.com --supabase https://x.supabase.co --supabase-key sb_secret_x 2>/dev/null
 
