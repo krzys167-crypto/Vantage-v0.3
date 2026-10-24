@@ -76,7 +76,18 @@ def event(state, etype, data="{}"):
 
 
 def push(state):
-    """Send probe lines appended since the last push. Called every few seconds."""
+    """Send probe lines appended since the last push. Called every few seconds.
+
+    The agent loop and `make submit` (final flush) can overlap: both would read the same
+    offset and send the same lines twice, which the grader rejects as replayed
+    (non_monotonic) and then withholds attestation. An exclusive lock serialises them."""
+    import fcntl
+    with open(os.path.join(state, "grader.push.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _push_locked(state)
+
+
+def _push_locked(state):
     a = attempt(state)
     path = os.path.join(state, "evidence", "probes.jsonl")
     off_path = os.path.join(state, "grader.offset")
