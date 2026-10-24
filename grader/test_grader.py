@@ -428,10 +428,25 @@ Reverted both changes.
         self.assertEqual(g.hidden_trust(True, "dns-poison", {"sha256": "a" * 64}), "platform, public pack")
         self.assertEqual(g.hidden_trust(True, "certificate-apocalypse", None), "platform, public pack")
 
-    def test_backfilled_probes_are_rejected(self):
+    def test_probes_before_the_incident_are_ignored_not_rejected(self):
+        # k8s: the first push after `break` carries the prober's whole log, healthy history included
         a = self.start()
         self.ev(a, "break", {"host": a["host"]})
         old = time.time() - 300
+        code, r = self.send(a, [{"ts": old + i, "ok": True, "lat_ms": 5, "flag": a["flag"]} for i in range(20)])
+        self.assertEqual((r["accepted"], r["rejected"], r["ignored"]), (0, 0, 20))
+        self.live(a, 40, ok=True, flag=a["flag"], dt=0.5)
+        code, res = self.submit(a)
+        self.assertEqual(code, 200, res)
+        self.assertTrue(res["result"]["attested"], res["result"]["integrity"])
+
+    def test_backfilled_probes_are_rejected(self):
+        a = self.start()
+        self.ev(a, "break", {"host": a["host"]})
+        # the incident began 300 s ago (server time); probes dated inside it but sent now are back-filled
+        self.g.db.execute("UPDATE attempts SET break_ts=? WHERE id=?", (time.time() - 300, a["attempt_id"]))
+        self.g.db.commit()
+        old = time.time() - 200
         code, r = self.send(a, [{"ts": old + i, "ok": True, "lat_ms": 5, "flag": a["flag"]} for i in range(20)])
         self.assertEqual((r["accepted"], r["rejected"]), (0, 20))
 
@@ -473,6 +488,8 @@ Reverted both changes.
     def test_backfill_mixed_with_live_is_not_attested(self):
         a = self.start()
         self.ev(a, "break", {"host": a["host"]})
+        self.g.db.execute("UPDATE attempts SET break_ts=? WHERE id=?", (time.time() - 120, a["attempt_id"]))
+        self.g.db.commit()                                   # back-filled probes fall inside the incident
         self.live(a, 3, ok=False, dt=0.3)
         self.send(a, [{"ts": time.time() - 60 + i, "ok": True, "lat_ms": 1, "flag": a["flag"]} for i in range(30)])
         self.live(a, 18, ok=True, flag=a["flag"], dt=0.3)
