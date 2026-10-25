@@ -22,8 +22,10 @@ ID = re.compile(r"\b[AH][0-9]+\b")
 
 def load(runner):
     scn = os.path.dirname(os.path.dirname(runner))
-    text = open(runner).read()
-    doc = yaml.safe_load(open(os.path.join(scn, "scenario.yaml")))
+    with open(runner) as f:
+        text = f.read()
+    with open(os.path.join(scn, "scenario.yaml")) as f:
+        doc = yaml.safe_load(f)
     names = re.search(r"^SHORTCUTS_DEFAULT=\(([^)]*)\)", text, re.M).group(1).split()
     # arms of expectation(): `    name) echo '<python>' ;;`
     expect = dict(re.findall(r"^\s+(\w+)\)\s+echo '(.*)' ;;$", text, re.M))
