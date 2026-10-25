@@ -5,7 +5,7 @@ PY ?= $(shell command -v python3 || command -v python)
 export MODE ?= docker
 export KUBE_CONTEXT ?= k3d-vantage
 
-.PHONY: help cluster up break status logs call metrics apply hint assert score submit postmortem lint-postmortem debrief down clean fix ci
+.PHONY: help cluster up break status logs call metrics apply hint assert score submit postmortem lint-postmortem debrief down clean fix ci ci-shortcuts
 
 help: ## list targets
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-15s %s\n", $$1, $$2}'
@@ -62,6 +62,9 @@ fix: ## SPOILER: reference solution
 
 ci: ## full self-test: up, break, fix, assert, score, down
 	@bash ci/run_scenario.sh
+
+ci-shortcuts: ## negative controls (docker): lazy shortcuts must be caught by the assertions (SEED=... picks the variant)
+	@bash ci/run_shortcuts.sh $(SHORTCUTS)
 
 down: ## stop (keeps .state for the debrief)
 	@bash scripts/ctl.sh down

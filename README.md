@@ -51,6 +51,7 @@ Scenariusze opisuje DSL v0 (`dsl/scenario.schema.v0.json`).
 `scenario.yaml` jest jedynym źródłem wag, progów i podpowiedzi: `python dsl/validate.py --emit` generuje z niego `generated/*.json`, z których korzysta `framework/` (runtime docker/k3d, scoring, hinty).
 Plan rozwoju DSL jest w [docs/dsl-roadmap.md](docs/dsl-roadmap.md).
 CI (`.github/workflows/scenarios.yml`) uruchamia self-test każdego scenariusza w trybie docker dla wszystkich kombinacji usterek i w trybie k3d dla wybranych.
+Każdy scenariusz ma też zestaw **skrótów**, czyli leniwych napraw, które pakiet asercji musi złapać (`make ci-shortcuts`): [docs/negative-controls.md](docs/negative-controls.md).
 
 Każdy scenariusz wspiera `MODE=docker` (domyślnie) i `MODE=k3d`.
 

@@ -101,5 +101,6 @@ SEED=<64 hex> make ci-shortcuts SHORTCUTS=stub_gateway
 | `stub_gateway` | brama sama odpowiada na `/healthz` i podaje flagę przepisaną z `probes.jsonl` | A6 (`canary=missing`), A7; ocena FAIL |
 | `verify_off` | `proxy_ssl_verify off` zamiast naprawy truststore | H3; limit 65 pkt |
 | `short_lived` | wygasłe certyfikaty wystawione na 1 dzień | H1 (liść brzegu i certyfikat klienta); nie elite |
+| `mtls_off` | backend przestaje żądać certyfikatu klienta (kopia z `CERT_NONE` pod tym samym aliasem) | H5; limit 65 pkt |
 
 Ukryta asercja, której nikt nie widział w czerwieni, jest nadzieją, a nie kontrolą. Dlatego dodając asercję, dodaj też skrót, który ją uruchamia.

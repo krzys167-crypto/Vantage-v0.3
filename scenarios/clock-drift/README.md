@@ -82,5 +82,14 @@ Kuszące „naprawy” i to, co je łapie:
 | wydłużenie TTL | H4 |
 | wyłączenie weryfikacji podpisu | A4 i H2 |
 | skopiowanie starego klucza pod nowy `kid` | A4 |
+| `leeway_s: 900` zamiast naprawy zegara | A3, H1 i H3 (token wygasły 13 minut temu jest przyjmowany) |
+| zgranie zegarów ze sobą, a nie z czasem referencyjnym | A3: offset mierzony jest względem prawdziwego czasu |
+| wyłączone `verify_signature` albo `verify_audience` po naprawie | H2, H5 (limit 65 pkt i ocena PASS) |
 
 Pomiary i scoring są te same co w innych scenariuszach (`framework/score.py`). Wagi, progi i podpowiedzi pochodzą z `scenario.yaml` przez `dsl/validate.py --emit`.
+
+## Kontrole negatywne
+
+`make ci-shortcuts` (tryb docker) stosuje po `break` każdy z tych skrótów i wymaga, żeby pakiet asercji go złapał:
+`leeway_mask`, `match_clocks`, `ttl_stretch`, `verify_off`, `forgery_open`, `audience_off`.
+Szczegóły i sposób dodawania własnych: [docs/negative-controls.md](../../docs/negative-controls.md).

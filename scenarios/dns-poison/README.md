@@ -76,6 +76,15 @@ Kuszące „naprawy” i to, co je łapie:
 | wyłączenie weryfikacji podpisu | H1 (limit 65 pkt i ocena PASS) oraz A3/A4, bo ruch dalej idzie do legacy |
 | dopisanie poprawnego IP do `hosts.json` | H2 |
 | restart api lub DNS w trybie docker zamiast `flush`/`reload` | kara za blast radius |
+| przypięcie obu nazw w `hosts.json` bez dotykania strefy | A2, H2, H3: strefa, źródło prawdy dla reszty klientów, nadal kłamie |
+| TTL 12 h zostawiony na poprawnym rekordzie | H4 |
+| klucz `payments` skopiowany do wycofanej instancji, żeby jej podpisy przechodziły | A4: checkout obsługuje legacy, a nie `payments` |
 
 W trybie k3d `make reload` aktualizuje ConfigMap i restartuje `dns`, więc pułapka z serialem działa tylko w trybie docker.
 H3 i tak sprawdza serial w obu trybach.
+
+## Kontrole negatywne
+
+`make ci-shortcuts` (tryb docker) stosuje po `break` każdy z tych skrótów i wymaga, żeby pakiet asercji go złapał:
+`verify_off`, `legacy_accepted`, `hosts_pin`, `pin_only`, `long_ttl`, `resign_legacy`.
+Szczegóły i sposób dodawania własnych: [docs/negative-controls.md](../../docs/negative-controls.md).
