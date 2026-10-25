@@ -76,8 +76,9 @@ Limity wyniku:
 
 - **Mutacja per użytkownik.** Seed = sha256(USER_ID). Od niego zależą hostname/SAN, to, która z 2×2 usterek wystąpi (brzeg: wygasły leaf albo niepełny łańcuch; mesh: podmieniony truststore albo wygasły cert klienta mTLS), szum w logach (decoy) i flaga.
 - **Wieloetapowość.** Naprawa brzegu ujawnia dopiero drugi problem (502 na hopie mTLS).
-- **Flaga z backendu.** Backend zwraca HMAC(secret, host). Gateway z `return 200` nie przejdzie A6 ani H4.
-- **Ukryte asercje (H1–H6).** Uczestnik widzi tylko ID i PASS/FAIL. Wykrywają certyfikat ważny 100 lat, słaby klucz, `proxy_ssl_verify off`, wyłączone mTLS w backendzie i wildcard w SAN.
+- **Flaga z backendu.** Backend zwraca HMAC(secret, host). Flaga jest jednak stała i jawna: widać ją w każdej odpowiedzi i w `probes.jsonl` sprzed `break`, więc sama nie chroni przed bramą, która odpowiada za backend (`add_header ...; return 200`).
+- **Kanarek związany z nonce.** Prober i A6 wysyłają świeży `X-Vantage-Nonce`, a backend odpowiada `X-Vantage-Canary` = HMAC(secret, `canary:host:nonce`). Prober liczy próbkę jako zdrową tylko z poprawnym kanarkiem, więc brama-atrapa nie przejdzie A6 ani A7, nawet z przepisaną flagą. Sam kanarek nie jest tajny co do mechanizmu: nie da się go wyprodukować bez `flag_secret`.
+- **Ukryte asercje (H1–H6).** Uczestnik widzi tylko ID i PASS/FAIL. Wykrywają certyfikat ważny 100 lat albo jednodniowy (liść brzegu i certyfikat klienta mTLS), słaby klucz, `proxy_ssl_verify off`, wyłączone mTLS w backendzie i wildcard w SAN.
 - **Okno stabilności.** Chwilowy sukces nie wystarcza.
 - **Dowody zamiast deklaracji.** Wynik powstaje z telemetrii i hashy plików, a `report.json` jest podpisany ed25519.
 
@@ -88,4 +89,17 @@ Limity wyniku:
 ```bash
 make ci                       # up -> break -> sprawdza, że jest zepsute -> fix -> okno -> assert -> score -> down
 SEED=<64 hex> make ci         # konkretna kombinacja usterek
+make ci-shortcuts             # kontrole negatywne (docker): każdy „leniwy fix” musi zostać złapany
+SEED=<64 hex> make ci-shortcuts SHORTCUTS=stub_gateway
 ```
+
+`ci/shortcuts/` zawiera skróty, które robi pośpieszny inżynier, runbook z 2022 albo nieuważna odpowiedź LLM.
+`ci/run_shortcuts.sh` stosuje każdy po `break`, ocenia próbę i wymaga, żeby właściwa asercja go złapała:
+
+| Skrót | Co robi | Łapie |
+|---|---|---|
+| `stub_gateway` | brama sama odpowiada na `/healthz` i podaje flagę przepisaną z `probes.jsonl` | A6 (`canary=missing`), A7; ocena FAIL |
+| `verify_off` | `proxy_ssl_verify off` zamiast naprawy truststore | H3; limit 65 pkt |
+| `short_lived` | wygasłe certyfikaty wystawione na 1 dzień | H1 (liść brzegu i certyfikat klienta); nie elite |
+
+Ukryta asercja, której nikt nie widział w czerwieni, jest nadzieją, a nie kontrolą. Dlatego dodając asercję, dodaj też skrót, który ją uruchamia.
