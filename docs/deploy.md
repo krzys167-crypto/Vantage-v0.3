@@ -76,3 +76,33 @@ Token admina generuje instalator (`RANGE_ADMIN_TOKEN` w `/etc/vantage/env`).
 - `range/tests/test_panel_browser.py` (job `panel-browser`) przechodzi panel w prawdziwym Chromium: start, ocena, post-mortem podpisany w przeglądarce i zweryfikowany przez grader.
 - `range/tests/test_api.py` (CI) sprawdza: logowanie wymagane (sfałszowany JWT dostaje 401), pełny przebieg start → kubeconfig → ocena → stop, to, że nikt nie pobierze cudzego kubeconfig, jeden incydent na osobę, limit miejsc (429) i raport z nieudanego startu.
 - `deploy/install.sh` w CI tylko się parsuje (`bash -n`), przechodzi `--dry-run` i odrzuca klucz sekretny. Na prawdziwej maszynie jeszcze nie był uruchamiany. Pierwsza instalacja to też jego pierwszy test.
+
+## Gdy coś nie działa po instalacji
+
+Najpierw uruchom test dymny, który sprawdza DNS, HTTPS, grader, to, że API wymaga logowania, port 6443 i (na serwerze) usługi:
+
+```bash
+sudo bash /opt/vantage/deploy/check.sh range.twojadomena.pl
+```
+
+Każda kontrola to jedna linia `ok` albo `FAIL` z podpowiedzią, kod wyjścia 0 oznacza komplet. Skrypt niczego nie zmienia i nie startuje incydentu. Jeśli coś zgłosi, zacznij od tego, a poniżej jest opis typowych przyczyn.
+
+Zacznij od logów (instalator zakłada dwie usługi systemd):
+
+```bash
+sudo systemctl status vantage-grader vantage-range-api caddy --no-pager
+sudo journalctl -u vantage-range-api -n 50 --no-pager
+sudo journalctl -u caddy -n 50 --no-pager      # certyfikat Let's Encrypt
+```
+
+| Objaw | Najczęstsza przyczyna | Co sprawdzić |
+|---|---|---|
+| `https://<domena>` nie otwiera się, Caddy nie dostaje certyfikatu | rekord A nie wskazuje jeszcze na serwer albo port 80/443 jest zablokowany | `dig +short <domena>` ma zwrócić IP serwera; z innego komputera `curl -v http://<domena>` |
+| port 80/443/6443 zamknięty mimo `ufw allow` | blokada u dostawcy | Oracle: Security List (albo Network Security Group) w VCN musi mieć wejście TCP 80, 443, 6443. AWS/Hetzner: odpowiednio Security Group / Firewall |
+| Oracle: porty otwarte w Security List, a nadal nie działa | wbudowane reguły `iptables` obrazu Ubuntu stoją przed regułami `ufw` | `sudo iptables -L INPUT -n --line-numbers`: jeśli przed regułami dla 80/443 stoi `REJECT`, wstaw `ACCEPT` przed nim, np. `sudo iptables -I INPUT 1 -p tcp -m multiport --dports 80,443,6443 -j ACCEPT`, i zapisz (`sudo netfilter-persistent save`). Tego kroku instalator nie wykonuje, bo nie jest sprawdzony na tej maszynie |
+| link logowania wraca na zły adres | brak Redirect URL w Supabase | Authentication → URL Configuration → dodaj `https://<domena>` |
+| panel pokazuje 401 po zalogowaniu | zły `--supabase` albo klucz | adres projektu `https://<ref>.supabase.co` i klucz `sb_publishable_…` w `/etc/vantage/env` |
+| start incydentu trwa kilka minut | pierwsze ładowanie obrazów do k3d | `sudo -u vantage bash /opt/vantage/framework/k3d_preload.sh vantage` jest idempotentny, można go powtórzyć |
+| klaster k3d nie wstał | za mało RAM albo Docker nie działa | `docker ps`, `free -h`; poniżej 4 GB zmniejsz `--max-sessions` |
+
+Ponowna instalacja jest bezpieczna: skrypt jest idempotentny, więc po poprawce wystarczy uruchomić go jeszcze raz.
