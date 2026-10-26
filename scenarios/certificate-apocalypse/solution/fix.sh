@@ -5,11 +5,12 @@ source "$(dirname "$0")/../scripts/lib.sh"
 require_state
 g="$SCN_DIR/scripts/gen_good_cert.sh"
 gw="$PKI/gateway"
+days="${FIX_CERT_DAYS:-90}"   # ci/shortcuts/short_lived.sh sets 1 to prove the validity check bites
 
 # Edge: leaf must be valid and the bundle must carry the intermediate.
 if ! openssl x509 -in "$gw/leaf.pem" -noout -checkend $((30*86400)) >/dev/null; then
   log "edge leaf expired -> re-issue with the same key"
-  "$g" server "$gw/leaf" "$PKI/ca/int-ca" "$VANTAGE_HOST" 90 >/dev/null
+  "$g" server "$gw/leaf" "$PKI/ca/int-ca" "$VANTAGE_HOST" "$days" >/dev/null
 fi
 [[ "$(grep -c 'BEGIN CERT' "$gw/fullchain.pem")" -lt 2 ]] && log "bundle missing intermediate -> rebuild fullchain"
 cat "$gw/leaf.pem" "$PKI/ca/int-ca.pem" > "$gw/fullchain.pem"
@@ -21,7 +22,7 @@ if ! cmp -s "$gw/mesh-ca.pem" "$PKI/ca/mesh-ca.pem"; then
 fi
 if ! openssl x509 -in "$gw/client.pem" -noout -checkend $((30*86400)) >/dev/null; then
   log "mesh client cert expired -> re-issue with the same key"
-  "$g" client "$gw/client" "$PKI/ca/mesh-ca" "gateway.mesh.internal" 90 >/dev/null
+  "$g" client "$gw/client" "$PKI/ca/mesh-ca" "gateway.mesh.internal" "$days" >/dev/null
 fi
 
 gateway_apply

@@ -93,13 +93,14 @@ spec:
             - {name: code, mountPath: /app/probe.py, subPath: probe.py}
             - {name: tmp, mountPath: /tmp}
             - {name: clients, mountPath: /pki/clients, readOnly: true}
-            # only the mesh CA, used by hidden assertion H5
+            # mesh CA (hidden assertion H5) and flag_secret (canary check). Only this pod and the
+            # backend get it: the trainee Role cannot read backend-pki nor exec into the prober
             - {name: backend-ca, mountPath: /pki/backend, readOnly: true}
       volumes:
         - {name: code, configMap: {name: app-code}}
         - {name: clients, secret: {secretName: clients-ca}}
         - {name: tmp, emptyDir: {sizeLimit: 1Mi}}
-        - {name: backend-ca, secret: {secretName: backend-pki, items: [{key: mesh-ca.pem, path: mesh-ca.pem}]}}
+        - {name: backend-ca, secret: {secretName: backend-pki, items: [{key: mesh-ca.pem, path: mesh-ca.pem}, {key: flag_secret, path: flag_secret}]}}
 ---
 # Isolation: only the gateway may reach the backend; nothing in the namespace
 # may leave it (no egress to the internet from scenario workloads).

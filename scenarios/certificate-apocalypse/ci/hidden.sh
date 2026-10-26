@@ -3,9 +3,12 @@
 # with its variables in scope. A platform can replace this file with a private
 # pack ($VANTAGE_HIDDEN_PACK/certificate-apocalypse/hidden.sh) that follows the same contract:
 # call `record <id> hidden <name> <0|1> ""` once per check.
-# H1 sane validity: >= 30 days left, <= 398 days total (no "100-year cert" fix)
-if [[ -s "$leaf" ]]; then
-  p=$("$PY" - "$leaf" <<'EOF'
+# H1 sane validity on every certificate the gateway presents: the edge leaf as served AND the
+# mTLS client certificate as deployed. >= 30 days left, <= 398 days total (no "100-year cert" fix,
+# no 1-day "it works now" fix on the mesh hop where nobody is looking).
+h1_window() { # pem file -> 1 / 0
+  [[ -s "$1" ]] || { echo 0; return; }
+  "$PY" - "$1" <<'EOF'
 import subprocess, sys, datetime as d
 def get(f):
     v = subprocess.check_output(["openssl", "x509", "-in", sys.argv[1], "-noout", f"-{f}"], text=True).split("=", 1)[1].strip()
@@ -14,8 +17,9 @@ nb, na = get("startdate"), get("enddate")
 now = d.datetime.now(d.timezone.utc).replace(tzinfo=None)
 print(1 if (na - now).days >= 30 and (na - nb).days <= 398 else 0)
 EOF
-)
-else p=0; fi
+}
+svc_exec gateway cat /pki/gateway/client.pem > "$tmp/client-deployed.pem" 2>/dev/null || : > "$tmp/client-deployed.pem"
+[[ "$(h1_window "$leaf")" == 1 && "$(h1_window "$tmp/client-deployed.pem")" == 1 ]] && p=1 || p=0
 record H1 hidden validity_window "$p" ""
 
 # H2 key strength: EC >= 256 or RSA >= 2048

@@ -50,13 +50,19 @@ if [[ -s "$leaf" ]]; then
 else p=0; fi
 record A5 public key_matches_cert "$p" "gateway/leaf.key vs served leaf"
 
-# A6 end-to-end request through mTLS hop returns 200 + backend flag
-hdrs="$(curl -sS --noproxy '*' -o /dev/null -D - --max-time 5 --cacert "$ROOT" \
+# A6 end-to-end request through the mTLS hop returns 200 + the backend's proofs. The nonce is
+# fresh per run, so the canary can only come from a response the real backend produced now:
+# a gateway that answers /healthz itself (static flag replayed from old evidence) fails here.
+nonce="$("$PY" -c 'import secrets; print(secrets.token_hex(8))')"
+hdrs="$(curl -sS --noproxy '*' -o /dev/null -D - --max-time 5 --cacert "$ROOT" -H "X-Vantage-Nonce: $nonce" \
   --resolve "$VANTAGE_HOST:$EDGE_PORT:127.0.0.1" "https://$VANTAGE_HOST:$EDGE_PORT/healthz" 2>&1 || true)"
 code="$(printf '%s' "$hdrs" | awk 'NR==1{print $2}')"
 flag="$(printf '%s' "$hdrs" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-vantage-flag"{print $2}')"
-[[ "$code" == 200 && -n "$flag" ]] && p=1 || p=0
-record A6 public mtls_trust_ok "$p" "http=$code flag=${flag:-none}"
+got_canary="$(printf '%s' "$hdrs" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-vantage-canary"{print $2}')"
+want_canary="$("$PY" -c 'import hmac,hashlib,sys; print(hmac.new(open(sys.argv[1],"rb").read().strip(), f"canary:{sys.argv[2]}:{sys.argv[3]}".encode(), hashlib.sha256).hexdigest()[:24])' "$PKI/backend/flag_secret" "$VANTAGE_HOST" "$nonce")"
+if [[ -z "$got_canary" ]]; then canary_state=missing; elif [[ "$got_canary" == "$want_canary" ]]; then canary_state=ok; else canary_state=wrong; fi
+[[ "$code" == 200 && -n "$flag" && "$canary_state" == ok ]] && p=1 || p=0
+record A6 public mtls_trust_ok "$p" "http=$code flag=${flag:-none} canary=$canary_state"
 
 # A7 prober saw only healthy responses for the whole window
 assert_stable_window A7 "$WINDOW"

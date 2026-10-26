@@ -63,6 +63,8 @@ Ukryte (uczestnik widzi tylko ID i PASS/FAIL):
 | H4 | kolejka `inventory` nadal ograniczona (load shedding) | |
 | H5 | checkout rezerwuje prawdziwy towar, a nie odpowiada ze statycznego fallbacku | tak |
 | H6 | flaga autentyczna | |
+| H7 | koszt jednostki pracy (`base_service_ms`) bez zmian: to właściwość kodu, a nie pokrętło | tak |
+| H8 | przepustowość przywrócona, a nie rozdmuchana: co najwyżej 2x bazowa pula workerów i CPU | |
 
 Kuszące „naprawy” i to, co je łapie:
 
@@ -73,4 +75,14 @@ Kuszące „naprawy” i to, co je łapie:
 | więcej workerów przy obciętym CPU | nic nie daje: równoległość ogranicza CPU (`effective_workers`) |
 | `fallback_static: true` | H5 (limit 65 pkt i ocena PASS): sklep „sprzedaje” towar bez rezerwacji |
 | ogromny timeout albo nieograniczona kolejka | H3, H4 |
+| `base_service_ms: 1`: „praca jest tańsza”, a przepustowość zostaje obcięta | H7 (limit 65 pkt i ocena PASS): zmieniono model, a nie system |
+| 8x więcej workerów i 16x więcej CPU niż kiedykolwiek miał serwis | H8 (nie wyższa niż MERIT) |
+| `retries: 0` z zostawionym timeoutem 120 ms | H2, H3 |
 | restart `api` lub `inventory` w trybie docker | kara za blast radius; bez zmiany polityki burza wraca |
+
+## Kontrole negatywne
+
+`make ci-shortcuts` (tryb docker) stosuje po `break` każdy z tych skrótów i wymaga, żeby pakiet asercji go złapał:
+`model_constant`, `inflate`, `static_fallback`, `unbounded_queue`, `retries_off`, `capacity_only`.
+Ukryta asercja, którą nikt nie widział, jak pada, jest nadzieją, a nie kontrolą.
+Zestaw uruchamia CI dla dwóch ziaren (`SEED=...` wybiera wariant usterek).
