@@ -9,7 +9,17 @@ Docker (Docker Desktop na Windows), python3, make, bash i openssl. Na Windows `i
 narzędzia (patrz [README](../README.md)); same scenariusze to skrypty bash, więc `make` uruchamiaj
 w **Git Bash** (instaluje go Git for Windows) albo w WSL, nie w `cmd`.
 
-Sprawdź przed startem:
+Najprościej: w WSL, w katalogu sklonowanego repo, uruchom jedną komendę. Sprawdza Dockera, `make`, Pythona,
+pamięć i miejsce na dysku, niczego nie instaluje ani nie zmienia:
+
+```bash
+bash framework/preflight.sh
+```
+
+Każda linia to `ok`, `warn` albo `FAIL` z podpowiedzią, a na końcu jest werdykt `READY` lub `NOT READY`.
+Gdy prosisz o pomoc, wklej całe wyjście.
+
+Na Windowsie możesz też sprawdzić samo środowisko instalatorem:
 
 ```powershell
 .\install.ps1 -CheckOnly      # kod wyjścia 0 = środowisko gotowe
