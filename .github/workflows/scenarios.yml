@@ -12,7 +12,7 @@ jobs:
       - run: pip install pyyaml jsonschema
       # schema + semantic checks, and generated/ must match scenario.yaml
       - run: python dsl/validate.py --check
-      - run: python -m unittest dsl/test_lint.py -v
+      - run: python -m unittest dsl/test_lint.py dsl/test_shortcuts.py -v
       - run: python -m unittest framework/test_push.py -v
 
   grader-unit:
@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python -m unittest grader/test_grader.py grader/test_league.py grader/test_identity.py grader/test_jwks.py -v
       # controller logic that needs no cluster: subnet claims under concurrency, unusable private packs
-      - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh
+      - run: bash range/tests/net_claims.sh && bash range/tests/hidden_pack.sh && bash range/tests/start_safety.sh && bash range/tests/install_args.sh
       # panel API with a stub range.sh and real JWT checks; the installer at least parses and refuses secret keys
       - run: python -m unittest range/tests/test_api.py range/tests/test_webcrypto.py -v
       - run: |
@@ -113,27 +113,30 @@ jobs:
             !scenarios/${{ matrix.scenario }}/.state/evidence/signing.key
           if-no-files-found: ignore
 
-  # negative controls: every lazy shortcut (stub gateway, verify off, 1-day certs) must be caught
-  # by the assertion pack. A hidden assertion nobody has seen fail is a hope, not a control.
+  # negative controls: every lazy shortcut (stub gateway, verify off, inflated capacity, pinned hosts,
+  # a leeway wide enough to hide the drift, ...) must be caught by the assertion pack. A hidden
+  # assertion nobody has seen fail is a hope, not a control.
   shortcuts:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # a: expired leaf + swapped truststore; d: incomplete chain + expired mTLS client cert
+        scenario: [certificate-apocalypse, clock-drift, dns-poison, retry-storm]
+        # the two seeds flip every fault axis of every scenario (e.g. cert: expired leaf + swapped
+        # truststore vs incomplete chain + expired mTLS client cert; dns: zone vs hosts.json poison)
         seed:
           - "000000000000000000000000000000000000000000000000000000000000000a"
           - "000000111000000000000000000000000000000000000000000000000000000d"
     steps:
       - uses: actions/checkout@v4
       - name: shortcuts must not pass
-        working-directory: scenarios/certificate-apocalypse
+        working-directory: scenarios/${{ matrix.scenario }}
         env:
           SEED: ${{ matrix.seed }}
           USER_ID: ci@vantage
         run: set -o pipefail; make ci-shortcuts 2>&1 | tee "$RUNNER_TEMP/shortcuts.log"
       - if: failure()
-        run: bash framework/ci_annotate.sh "$RUNNER_TEMP/shortcuts.log" "shortcuts got through / failed"
+        run: bash framework/ci_annotate.sh "$RUNNER_TEMP/shortcuts.log" "shortcuts got through / failed (${{ matrix.scenario }})"
 
   k3d:
     runs-on: ubuntu-latest

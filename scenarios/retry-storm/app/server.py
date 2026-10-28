@@ -101,6 +101,7 @@ class Pool:
         effective = max(1, min(workers, cpu // 125))
         service_ms = float(c.get("base_service_ms", 40)) * 1000.0 / cpu
         p = {"workers": workers, "cpu_millicores": cpu, "effective_workers": effective,
+             "base_service_ms": float(c.get("base_service_ms", 40)),
              "service_ms": round(service_ms, 1), "queue_max": int(c.get("queue_max", 200))}
         cls._cache = (time.time(), p)
         return p

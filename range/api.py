@@ -296,7 +296,12 @@ def make_handler(rng):
                 user, tok = self.user()
                 body = {}
                 if method == "POST":
-                    n = int(self.headers.get("Content-Length") or 0)
+                    try:
+                        n = int(self.headers.get("Content-Length") or 0)
+                    except ValueError:
+                        n = -1
+                    if n < 0:        # read(-1) would block until the client hangs up
+                        return self.reply(400, {"error": "bad Content-Length"})
                     if n > MAX_BODY:
                         return self.reply(413, {"error": "too large"})
                     body = json.loads(self.rfile.read(n) or b"{}")

@@ -33,7 +33,8 @@
     "restart_unaffected": 10
   },
   "security_critical": [
-    "H5"
+    "H5",
+    "H7"
   ],
   "tiers": {
     "elite": 92,

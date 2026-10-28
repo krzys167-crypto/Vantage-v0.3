@@ -33,6 +33,10 @@ done
 [[ "$SUPABASE_KEY" == sb_secret_* || "$SUPABASE_KEY" == *service_role* ]] && {
   echo "that is a SECRET key: pass the publishable one (sb_publishable_...)" >&2; exit 2; }
 [[ "$DOMAIN" =~ ^[a-zA-Z0-9.-]+$ ]] || { echo "bad domain" >&2; exit 2; }
+# these values are written into /etc/vantage/env and the Caddyfile: no newlines, spaces or shell characters
+[[ "$SUPABASE" =~ ^https://[a-zA-Z0-9.-]+$ ]] || { echo "bad --supabase: expected https://<ref>.supabase.co" >&2; exit 2; }
+[[ "$SUPABASE_KEY" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad --supabase-key: expected the publishable key" >&2; exit 2; }
+[[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] || { echo "bad --max-sessions" >&2; exit 2; }
 
 run() { if [[ $DRY == 1 ]]; then echo "+ $*"; else "$@"; fi; }
 log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
@@ -52,7 +56,10 @@ if ! command -v caddy >/dev/null; then
 fi
 command -v k3d >/dev/null || run sh -c "curl -sSfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.7.4 bash"
 command -v kubectl >/dev/null || {
-  run curl -sSfLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.31.0/bin/linux/$arch/kubectl"
+  kurl="https://dl.k8s.io/release/v1.31.0/bin/linux/$arch/kubectl"
+  run curl -sSfLo /usr/local/bin/kubectl "$kurl"
+  # the release ships a .sha256 next to the binary: never run an unverified download as root
+  run sh -c "echo \"\$(curl -sSfL $kurl.sha256)  /usr/local/bin/kubectl\" | sha256sum -c - || { rm -f /usr/local/bin/kubectl; exit 1; }"
   run chmod +x /usr/local/bin/kubectl; }
 
 log "user and code: $APP ($REF)"

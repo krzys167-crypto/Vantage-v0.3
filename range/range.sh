@@ -101,15 +101,26 @@ cmd="${1:-}"; shift || true
 case "$cmd" in
   start)
     scenario="${1:?scenario}"; user="${2:-anonymous}"
+    [[ "$scenario" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "bad scenario name"
     SCN="$ROOT/scenarios/$scenario"
     [[ -f "$SCN/k8s/trainee-role.yaml" ]] || die "$scenario has no k8s/trainee-role.yaml: not available as a hosted range yet"
     id="$(openssl rand -hex 4)"; dir="$SESSIONS/$id"
     mkdir -p "$dir/state" && chmod 700 "$dir"
     net="$(free_svc_net "$id")"
-    started=0; trap '[[ $started == 1 ]] || release_svc_net "$id"' EXIT
-    printf 'SCENARIO=%s\nUSER_ID=%s\nEDGE_PORT=%s\nVANTAGE_SVC_NET=%s\n' "$scenario" "$user" \
+    # any exit before the session is up (a failed `up`, a die, a signal) tears down what was
+    # created and releases the claim: the caller never learns the id of a failed start
+    started=0 env_ready=0
+    cleanup_failed_start() {
+      [[ $started == 1 ]] && return 0
+      [[ $env_ready == 1 ]] && { ( cd "$SCN" && bash scripts/ctl.sh down ) >/dev/null 2>&1 || true; }
+      release_svc_net "$id"
+    }
+    trap cleanup_failed_start EXIT
+    # session.env is sourced later and the user id comes from an identity provider
+    # (an e-mail claim): quote every value, never let it be parsed as shell
+    printf 'SCENARIO=%q\nUSER_ID=%q\nEDGE_PORT=%q\nVANTAGE_SVC_NET=%q\n' "$scenario" "$user" \
       "$(( 20000 + 16#${id:0:4} % 20000 ))" "$net" > "$dir/session.env"
-    session_env "$id"
+    session_env "$id"; env_ready=1
     export USER_ID="$user"
     # the controller is the platform: it vouches for the user when the grader requires it
     if [[ -z "${VANTAGE_USER_TOKEN:-}" && -n "${GRADER_USER_SECRET:-}" ]]; then

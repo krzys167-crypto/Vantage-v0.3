@@ -53,6 +53,8 @@ assertions:
     - {id: H4, type: backlog_bounded, max: 1000}
     - {id: H5, type: no_static_fallback, security_critical: true}
     - {id: H6, type: flag_authentic}
+    - {id: H7, type: workload_model_intact, security_critical: true}
+    - {id: H8, type: capacity_within_budget, max_factor: 2}
 
 scoring:
   weights: {availability: 20, time_to_recover: 35, latency: 10, blast_radius: 15, hidden: 20}
