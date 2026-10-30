@@ -70,7 +70,7 @@ Każda sesja ma własny namespace `vr-<id>` i własny `EDGE_PORT`. Split-Brain D
 
 Przydział jest atomowy na jednym hoście kontrolera. `start` bierze blokadę (`range/.sessions/.lock`, `mkdir` jest atomowy) i pomija podsieci zajęte przez Service albo zarezerwowane przez inną sesję. Rezerwację zapisuje w `range/.sessions/.nets/<n>`. Zwalnia ją `stop` albo każde wyjście `start` przed końcem. Blokadę starszą niż minuta zostawił kontroler, który padł, więc nowy ją przejmuje. `range/tests/net_claims.sh` (job `grader-unit`) uruchamia 30 równoległych rezerwacji na atrapie `kubectl`: wszystkie podsieci są różne, a bez blokady pojawiają się duplikaty. Kilka hostów kontrolera potrzebowałoby wspólnego rejestru (np. ConfigMap z `resourceVersion`).
 
-`grade` nie ocenia na starych wynikach. Przed asercjami usuwa `assertions.json`. Kod wyjścia inny niż 0 (zaliczone) albo 1 (publiczne nie przeszły) przerywa ocenę. Kod 2 oznacza prywatny pakiet, którego brakuje albo który jest zapisywalny dla wszystkich, bo jest uruchamiany jako kod. Sprawdza to `range/tests/hidden_pack.sh`.
+`grade` nie ocenia na starych wynikach. Przed asercjami usuwa `assertions.json`. Kod wyjścia inny niż 0 (zaliczone) albo 1 (publiczne nie przeszły) przerywa ocenę. Kod 2 oznacza prywatny pakiet, którego brakuje albo który jest zapisywalny dla wszystkich, bo jest uruchamiany jako kod. Sprawdzane są plik `hidden.sh` oraz oba katalogi nad nim (`$RANGE_HIDDEN_PACK/<scenariusz>` i sam `$RANGE_HIDDEN_PACK`), bo plik, którego nikt nie może edytować, da się podmienić przez `rename`, gdy jego katalog jest zapisywalny dla innych. Sprawdza to `range/tests/hidden_pack.sh`.
 
 ## Prywatny pakiet ukrytych asercji
 
