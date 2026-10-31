@@ -310,9 +310,14 @@ run_hidden_pack() {
     # exit 2, not die's 1: a grader must tell "pack unusable" from "public assertions failed"
     [[ -f "$f" ]] || { printf '\033[31mxx\033[0m hidden pack has no %s/hidden.sh: %s\n' "$SCENARIO" "$VANTAGE_HIDDEN_PACK" >&2; exit 2; }
     # it is sourced as code: refuse one that anybody on the host could have rewritten
-    if [[ -n "$(find "$f" -maxdepth 0 -perm -o+w 2>/dev/null)" ]]; then
-      printf '\033[31mxx\033[0m hidden pack is world-writable, refusing to run it: %s\n' "$f" >&2; exit 2
-    fi
+    # the file and the two directories above it (a file nobody may edit can still be swapped
+    # by renaming over it when its directory is writable by others)
+    local p
+    for p in "$f" "$(dirname "$f")" "$VANTAGE_HIDDEN_PACK"; do
+      if [[ -n "$(find "$p" -maxdepth 0 -perm -o+w 2>/dev/null)" ]]; then
+        printf '\033[31mxx\033[0m hidden pack is world-writable, refusing to run it: %s\n' "$p" >&2; exit 2
+      fi
+    done
   fi
   printf '%s %s\n' "$src" "$(openssl dgst -sha256 -r "$f" | cut -d' ' -f1)" > "$ASSERT_TMP/pack"
   echo "hidden:"

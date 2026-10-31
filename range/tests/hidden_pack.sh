@@ -18,4 +18,12 @@ check "usable private pack runs" "$(run "$tmp/pack")" 0
 check "missing pack aborts" "$(run "$tmp/nowhere")" 2
 chmod o+w "$tmp/pack/demo/hidden.sh"
 check "world-writable pack aborts" "$(run "$tmp/pack")" 2
+chmod o-w "$tmp/pack/demo/hidden.sh"
+# a file nobody can edit is still replaceable (rename) when its directory is writable by others
+chmod o+w "$tmp/pack/demo"
+check "pack in a world-writable scenario dir aborts" "$(run "$tmp/pack")" 2
+chmod o-w "$tmp/pack/demo"; chmod o+w "$tmp/pack"
+check "pack under a world-writable pack root aborts" "$(run "$tmp/pack")" 2
+chmod o-w "$tmp/pack"
+check "restored permissions run again" "$(run "$tmp/pack")" 0
 exit $fail
