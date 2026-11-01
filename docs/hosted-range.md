@@ -110,3 +110,15 @@ Ograniczenia obecnej wersji:
 - Nowy scenariusz wymaga własnej `k8s/trainee-role.yaml`, testu uczestnika w `range/tests/` i czasem `scripts/range_trainee_objects.sh`.
 - Wszystkie sesje działają na jednym klastrze. Izolację zapewnia namespace i NetworkPolicy; do produkcji potrzebny jest klaster lub microVM na sesję.
 - Token w kubeconfig jest ważny 4 h (`RANGE_TTL`) i nie ma osobnego odwołania poza usunięciem namespace (`range.sh stop`).
+
+## Wejścia nie są zaufane (audyt)
+
+Nazwa użytkownika w trybie JWKS to domyślnie claim `email` z dostawcy tożsamości, czyli tekst, który wybiera użytkownik, nie platforma. Dlatego:
+
+- `range.sh start` zapisuje `session.env` przez `printf %q` i waliduje nazwę scenariusza, więc identyfikator użytkownika nigdy nie jest parsowany jako kod przy `source`;
+- `framework/lib.sh` zapisuje do `scenario.env` tylko `[A-Za-z0-9@._+-]`, a wszystko inne zamienia na stabilny pseudonim `u-<hash>` (parsery Pythona i `source` czytają ten plik dosłownie);
+- nieudany `start` sprząta po sobie (namespace i claim podsieci), bo API nie poznaje identyfikatora sesji, która się nie uruchomiła;
+- grader i API odrzucają ujemny i nienumeryczny `Content-Length` (400) oraz zbyt duży (413) zamiast czekać na zamknięcie połączenia;
+- `deploy/install.sh` waliduje `--supabase`, klucz i `--max-sessions` (trafiają do `/etc/vantage/env`) i weryfikuje sumę kontrolną `kubectl`.
+
+Testy: `range/tests/start_safety.sh`, `range/tests/install_args.sh`, `test_bad_content_length_*` w `grader/test_grader.py` i `range/tests/test_api.py`.
