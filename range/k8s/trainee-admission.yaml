@@ -1,0 +1,70 @@
+# Hosted range: a trainee may edit a Deployment, but not reach for data the Role denies.
+# RBAC cannot express this: `patch deployments/gateway` lets the trainee add a volume or
+# env var that points at ANY Secret/ConfigMap of the namespace (backend-pki, flag_secret,
+# the scenario parameters) and read it back through `pods/log`. This policy rejects an
+# update by a trainee ServiceAccount that adds a Secret/ConfigMap reference the workload
+# did not already have, or that asks for node access. Cluster-scoped, applied once by
+# range.sh (idempotent); needs ValidatingAdmissionPolicy (Kubernetes >= 1.30, k3s too).
+# The expressions are evaluated against sample objects in range/tests/test_admission.py.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: vantage-trainee-no-new-refs}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [deployments]
+  matchConditions:
+    - name: trainee-only
+      expression: >-
+        request.userInfo.username.startsWith('system:serviceaccount:') &&
+        request.userInfo.username.endsWith(':trainee')
+  variables:
+    # [new, old] lists of per-container reference names ("s/<secret>" or "c/<configmap>")
+    - name: refs
+      expression: >-
+        [object, oldObject].map(d, (d.spec.template.spec.containers +
+          (has(d.spec.template.spec.initContainers) ? d.spec.template.spec.initContainers : [])).map(c,
+            (has(c.env) ? c.env.filter(e, has(e.valueFrom) &&
+                (has(e.valueFrom.secretKeyRef) || has(e.valueFrom.configMapKeyRef))).map(e,
+                  has(e.valueFrom.secretKeyRef) ? 's/' + e.valueFrom.secretKeyRef.name
+                                                : 'c/' + e.valueFrom.configMapKeyRef.name) : []) +
+            (has(c.envFrom) ? c.envFrom.map(f,
+                  has(f.secretRef) ? 's/' + f.secretRef.name : 'c/' + f.configMapRef.name) : [])))
+    # [new, old] lists of volume references
+    - name: vols
+      expression: >-
+        [object, oldObject].map(d, (has(d.spec.template.spec.volumes) ? d.spec.template.spec.volumes : []).map(v,
+            has(v.secret) ? 's/' + v.secret.secretName :
+            has(v.configMap) ? 'c/' + v.configMap.name :
+            has(v.emptyDir) ? 'e/' + v.name : 'other/' + v.name))
+  validations:
+    - expression: >-
+        request.operation == 'UPDATE'
+      message: "a trainee may change an existing Deployment, not create one"
+    - expression: >-
+        variables.refs[0].all(l, l.all(r, variables.refs[1].exists(ol, r in ol)))
+      message: "environment references to a Secret or ConfigMap the workload did not already use are not allowed"
+    - expression: >-
+        variables.vols[0].all(r, r.startsWith('other/') ? false : r in variables.vols[1])
+      message: "volumes: only the Secret/ConfigMap/emptyDir volumes the workload already has (no hostPath, projected, PVC, ...)"
+    - expression: >-
+        !(has(object.spec.template.spec.hostNetwork) && object.spec.template.spec.hostNetwork) &&
+        !(has(object.spec.template.spec.hostPID) && object.spec.template.spec.hostPID) &&
+        !(has(object.spec.template.spec.hostIPC) && object.spec.template.spec.hostIPC)
+      message: "host namespaces are not allowed"
+    - expression: >-
+        (object.spec.template.spec.containers +
+          (has(object.spec.template.spec.initContainers) ? object.spec.template.spec.initContainers : [])).all(c,
+            !has(c.securityContext) || !has(c.securityContext.privileged) || !c.securityContext.privileged)
+      message: "privileged containers are not allowed"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: vantage-trainee-no-new-refs}
+spec:
+  policyName: vantage-trainee-no-new-refs
+  validationActions: [Deny]
