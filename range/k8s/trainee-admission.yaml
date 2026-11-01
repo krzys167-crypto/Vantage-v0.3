@@ -2,8 +2,10 @@
 # RBAC cannot express this: `patch deployments/gateway` lets the trainee add a volume or
 # env var that points at ANY Secret/ConfigMap of the namespace (backend-pki, flag_secret,
 # the scenario parameters) and read it back through `pods/log`. This policy rejects an
-# update by a trainee ServiceAccount that adds a Secret/ConfigMap reference the workload
-# did not already have, or that asks for node access. Cluster-scoped, applied once by
+# update by a trainee ServiceAccount that changes the pod spec at all (the Roles grant
+# `patch` on Deployments only for `rollout restart`, which touches template annotations).
+# The reference/volume/host rules below say it again with specific messages, so a future
+# loosening of the first rule does not silently reopen the hole. Cluster-scoped, applied once by
 # range.sh (idempotent); needs ValidatingAdmissionPolicy (Kubernetes >= 1.30, k3s too).
 # The expressions are evaluated against sample objects in range/tests/test_admission.py.
 apiVersion: admissionregistration.k8s.io/v1
@@ -45,6 +47,9 @@ spec:
     - expression: >-
         request.operation == 'UPDATE'
       message: "a trainee may change an existing Deployment, not create one"
+    - expression: >-
+        object.spec.template.spec == oldObject.spec.template.spec
+      message: "a trainee may restart a Deployment, not change its pod spec (command, image, env, volumes ...); repair goes through ConfigMaps and Secrets"
     - expression: >-
         variables.refs[0].all(l, l.all(r, variables.refs[1].exists(ol, r in ol)))
       message: "environment references to a Secret or ConfigMap the workload did not already use are not allowed"
