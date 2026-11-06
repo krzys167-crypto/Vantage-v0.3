@@ -74,12 +74,23 @@ class Admission(unittest.TestCase):
         self.assertTrue(applies)
         self.assertTrue(any(fragment in m for m in bad), bad)
 
-    def test_unchanged_and_ordinary_edits_pass(self):
+    def test_unchanged_and_rollout_restart_pass(self):
         self.assertEqual(verdict(self.new, self.old), (True, []))
-        spec(self.new)["containers"][0]["image"] = "mirror.gcr.io/library/nginx:1.27"
-        spec(self.new)["containers"][0]["env"].append({"name": "X", "value": "1"})
+        tpl = self.new["spec"]["template"]
+        tpl["metadata"].setdefault("annotations", {})["kubectl.kubernetes.io/restartedAt"] = "2026-11-01T08:00:00Z"
         self.new["spec"]["replicas"] = 3
         self.assertEqual(verdict(self.new, self.old), (True, []))
+
+    def test_changing_the_pod_spec_is_denied(self):
+        """the Secret a deployment already mounts must not be printable through `command`"""
+        spec(self.new)["containers"][0]["command"] = ["sh", "-c", "cat /pki/gateway/*"]
+        self.denied("restart a Deployment")
+        self.new = copy.deepcopy(self.old)
+        spec(self.new)["containers"][0]["image"] = "mirror.gcr.io/library/nginx:1.27"
+        self.denied("restart a Deployment")
+        self.new = copy.deepcopy(self.old)
+        spec(self.new)["containers"][0]["env"].append({"name": "X", "value": "1"})
+        self.denied("restart a Deployment")
 
     def test_new_secret_volume_is_denied(self):
         spec(self.new)["volumes"].append({"name": "loot", "secret": {"secretName": "backend-pki"}})
