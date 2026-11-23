@@ -78,6 +78,10 @@ release_svc_net() { # id: drop every claim this session holds
 
 trainee_kubeconfig() { # ns out
   local ns="$1" out="$2" server ca token
+  # cluster-wide, idempotent: a trainee may not add Secret/ConfigMap references to a Deployment
+  # (RBAC cannot say that). Fail closed: no policy, no kubeconfig.
+  kubectl --context "$KUBE_CONTEXT" apply -f "$ROOT/range/k8s/trainee-admission.yaml" >/dev/null \
+    || die "could not apply range/k8s/trainee-admission.yaml (needs Kubernetes >= 1.30)"
   kubectl --context "$KUBE_CONTEXT" -n "$ns" create serviceaccount trainee >/dev/null
   kubectl --context "$KUBE_CONTEXT" -n "$ns" apply -f "$SCN/k8s/trainee-role.yaml" >/dev/null
   kubectl --context "$KUBE_CONTEXT" -n "$ns" create rolebinding trainee --role=trainee \

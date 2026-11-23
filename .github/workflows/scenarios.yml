@@ -9,11 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pip install pyyaml jsonschema
+      - run: pip install pyyaml jsonschema cel-python
       # schema + semantic checks, and generated/ must match scenario.yaml
       - run: python dsl/validate.py --check
       - run: python -m unittest dsl/test_lint.py dsl/test_shortcuts.py -v
-      - run: python -m unittest framework/test_push.py -v
+      - run: python -m unittest framework/test_push.py range/tests/test_admission.py -v
 
   grader-unit:
     runs-on: ubuntu-latest

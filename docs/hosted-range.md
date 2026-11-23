@@ -43,7 +43,7 @@ kubectl get secret issuer-ca -o yaml        # CA do ponownego wystawienia certyf
 Każdy scenariusz ma własną rolę w `k8s/trainee-role.yaml`. Wszystkie role mają wspólny trzon:
 
 - uczestnik może czytać pody, serwisy, endpointy, eventy, deploymenty i logi oraz robić `port-forward`;
-- uczestnik nie może listować Secretów, czytać ConfigMap `scenario` (parametry scenariusza), robić `exec`, usuwać podów, tworzyć zasobów ani zmieniać probera.
+- uczestnik nie może listować Secretów, czytać ConfigMap `scenario` (parametry scenariusza), robić `exec`, usuwać podów, tworzyć zasobów ani zmieniać probera. Deployment można zrestartować (`rollout restart`), ale nie zmienić jego pod-spec: bez nowych referencji do Secretów/ConfigMap, bez zmiany `command` ani obrazu (polityka `range/k8s/trainee-admission.yaml`, wymaga Kubernetes ≥ 1.30; szczegóły w [negative-controls.md](negative-controls.md)).
 
 Różnią się tym, co jest częścią zadania:
 
