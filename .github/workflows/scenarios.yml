@@ -69,7 +69,14 @@ jobs:
           GRADER_URL: http://127.0.0.1:8700
           VANTAGE_USER_KEY: ${{ runner.temp }}/user.key
         run: |
-          make postmortem && make lint-postmortem && exit 1 || true    # an empty template must not pass
+          if ! make postmortem; then
+            echo "postmortem template generation failed unexpectedly"; exit 1
+          fi
+          if make lint-postmortem; then
+            echo "an empty post-mortem template unexpectedly passed lint"; exit 1
+          else
+            echo "empty post-mortem template correctly rejected"
+          fi
           python ../../framework/ci_postmortem.py . postmortem.md
           make lint-postmortem
           make debrief | tee "$RUNNER_TEMP/debrief.log"
